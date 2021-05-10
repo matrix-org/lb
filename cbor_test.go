@@ -152,3 +152,20 @@ func TestCBORInterfaceToJSONInterface(t *testing.T) {
 		}
 	}
 }
+
+func TestCBORDuplicateKey(t *testing.T) {
+	x := map[interface{}]interface{}{
+		"one": 11,
+		1:     12,
+	}
+	reverseLookup := map[int]string{
+		1: "one",
+	}
+	got := cborInterfaceToJSONInterface(x, reverseLookup).(map[string]interface{})
+	if len(got) != 1 {
+		t.Fatalf("wanted one key got %d: %+v", len(got), got)
+	}
+	if got["one"] != 11 {
+		t.Fatalf("cborInterfaceToJSONInterface preferred int key not str key: %+v", got)
+	}
+}

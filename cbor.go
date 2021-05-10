@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"reflect"
+	"sort"
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/matrix-org/util"
@@ -155,28 +156,44 @@ func cborInterfaceToJSONInterface(cborInt interface{}, lookup map[int]string) in
 		result := make(map[string]interface{}) // JSON does NOT allow numeric keys
 		// loop each key
 		m := cborInt.(map[interface{}]interface{})
+		var intKeys []int
+		intMap := make(map[int]interface{})
+		var strKeys []string
 		for k, v := range m {
+			// accept string keys
+			kstr, ok := k.(string)
+			if ok {
+				strKeys = append(strKeys, kstr)
+				continue
+			}
+			// accept int keys
 			kint, ok := num(k)
 			if ok {
-				kstr, ok := lookup[kint]
-				if ok {
-					result[kstr] = cborInterfaceToJSONInterface(v, lookup)
-				} else {
-					result[fmt.Sprintf("%d", kint)] = cborInterfaceToJSONInterface(v, lookup)
-				}
-			} else {
-				var kstr string
-				kstr, ok = k.(string)
-				if !ok {
-					// take the string representation
-					kstringer, ok := k.(fmt.Stringer)
-					if !ok {
-						panic(fmt.Sprintf("cannot represent CBOR key as string! key: %s val: %s", k, v))
-					}
-					kstr = kstringer.String()
-				}
-				result[kstr] = cborInterfaceToJSONInterface(v, lookup)
+				intKeys = append(intKeys, kint)
+				// because we typecast from other int types, we need to
+				// store the value in a dedicated map else looking them up may return <nil>
+				// in the original map due to mismatched types
+				intMap[kint] = v
+				continue
 			}
+			// drop the key
+		}
+		sort.Ints(intKeys)
+		sort.Strings(strKeys) // technically not needed but let's be deterministic
+		// loop all int keys and resolve them fully
+		for _, ik := range intKeys {
+			// map to str key and set it
+			kstr, ok := lookup[ik]
+			if ok {
+				result[kstr] = cborInterfaceToJSONInterface(intMap[ik], lookup)
+			} else {
+				result[fmt.Sprintf("%d", ik)] = cborInterfaceToJSONInterface(intMap[ik], lookup)
+			}
+		}
+		// loop all str keys and resolve them fully: this will clobber int keys mapped to str keys if int->str
+		// resolved to the same value, which is what we want
+		for _, is := range strKeys {
+			result[is] = cborInterfaceToJSONInterface(m[is], lookup)
 		}
 		return result
 	default:

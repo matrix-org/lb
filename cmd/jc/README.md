@@ -1,4 +1,4 @@
-## JC
+## jc
 
 This is a command line tool which can convert JSON to CBOR and vice versa, with support for Matrix key enums. This utility
 always produces canonical output for deterministic behaviour.
