@@ -1,5 +1,7 @@
 # Low Bandwidth Matrix
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/matrix-org/lb.svg)](https://pkg.go.dev/github.com/matrix-org/lb)
+
 This repository implements [MSC3079](https://github.com/matrix-org/matrix-doc/pull/3079) in Go.
 It also provides several command line tools to get up to speed with existing low bandwidth enabled servers.
 
