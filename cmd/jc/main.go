@@ -60,9 +60,7 @@ func main() {
 	var output []byte
 	var err error
 
-	codec := lb.CBORCodecV1{
-		Canonical: true,
-	}
+	codec := lb.NewCBORCodecV1(true)
 
 	if *flagCBORToJSON {
 		output, err = codec.CBORToJSON(reqBody)

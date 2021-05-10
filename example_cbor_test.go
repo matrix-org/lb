@@ -1,12 +1,15 @@
-package lb
+package lb_test
 
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+
+	"github.com/matrix-org/lb"
 )
 
 func ExampleCBORCodecV1_CBORToJSON() {
@@ -16,11 +19,7 @@ func ExampleCBORCodecV1_CBORToJSON() {
 	if err != nil {
 		panic(err)
 	}
-	v1 := CBORCodecV1{
-		// emit Matrix Canonical JSON so we can do literal string comparisons
-		// callers will probably want this set to 'false' as it consumes more CPU to convert to canonical
-		Canonical: true,
-	}
+	v1 := lb.NewCBORCodecV1(true)
 	output, err := v1.CBORToJSON(bytes.NewBuffer(inputBytes))
 	if err != nil {
 		panic(err)
@@ -46,11 +45,7 @@ func ExampleCBORCodecV1_JSONToCBOR() {
 		  "null_value": null
 		}
 	  }`
-	v1 := CBORCodecV1{
-		// emit Canonical CBOR so we can do literal string comparisons
-		// callers will probably want this set to 'false' as it consumes more CPU to convert to canonical
-		Canonical: true,
-	}
+	v1 := lb.NewCBORCodecV1(true)
 	output, err := v1.JSONToCBOR(bytes.NewBufferString(input))
 	if err != nil {
 		panic(err)
@@ -60,55 +55,7 @@ func ExampleCBORCodecV1_JSONToCBOR() {
 	// a5026e6d2e726f6f6d2e6d65737361676503a2181b6b48656c6c6f20576f726c64181c666d2e74657874056e21666f6f3a6c6f63616c686f7374067040616c6963653a6c6f63616c686f737409a26a626f6f6c5f76616c7565f56a6e756c6c5f76616c7565f6
 }
 
-func ExampleJSONToCBORWriter() {
-	responseCode := 400
-	jsonResponseBody := []byte(`{"error":"something","errcode":"M_UNKNOWN"}`)
-	w := httptest.NewRecorder()
-	w.Body = bytes.NewBuffer(nil)
-
-	// Initialise the writer with a ResponseWriter from ServeHTTP
-	jcw := JSONToCBORWriter{
-		ResponseWriter: w,
-		CBORCodec: CBORCodecV1{
-			// Set this to false, we just use this for asserting the CBOR output
-			Canonical: true,
-		},
-	}
-	// This MUST be set for the conversion to work and MUST be set before WriteHeader
-	jcw.Header().Set("Content-Type", "application/json")
-	jcw.WriteHeader(responseCode)
-	_, err := jcw.Write(jsonResponseBody)
-	if err != nil {
-		panic(err)
-	}
-
-	// Assert the HTTP response code and response body
-	if w.Code != responseCode {
-		panic(fmt.Sprintf("wrong response code: %d", w.Code))
-	}
-
-	fmt.Println(hex.EncodeToString(w.Body.Bytes()))
-	// Output:
-	// a21866694d5f554e4b4e4f574e186769736f6d657468696e67
-}
-
 func ExampleCBORToJSONHandler() {
-	// Test case from MSC3079, these two values are equivalent
-	cborTestCaseHex := `a5026e6d2e726f6f6d2e6d65737361676503a2181b6b48656c6c6f20576f726c64181c666d2e74657874056e21666f6f3a6c6f63616c686f7374067040616c6963653a6c6f63616c686f737409a26a626f6f6c5f76616c7565f56a6e756c6c5f76616c7565f6`
-	jsonTestCaseStr := `
-	{
-		"type": "m.room.message",
-		"content": {
-		  "msgtype": "m.text",
-		  "body": "Hello World"
-		},
-		"sender": "@alice:localhost",
-		"room_id": "!foo:localhost",
-		"unsigned": {
-		  "bool_value": true,
-		  "null_value": null
-		}
-	  }`
 	// This handler accepts JSON and returns JSON: it knows nothing about CBOR.
 	// We will give it the test case CBOR and it will return the same test case CBOR
 	// by wrapping this handler in CBORToJSONHandler
@@ -131,17 +78,34 @@ func ExampleCBORToJSONHandler() {
 			w.WriteHeader(400)
 			return
 		}
-		// we MUST tell it that we are sending back JSON
+		// we MUST tell it that we are sending back JSON before WriteHeader is called
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
 		// This response body will transparently be converted into CBOR
-		w.Write([]byte(jsonTestCaseStr))
+		w.Write([]byte(`
+		{
+			"type": "m.room.message",
+			"content": {
+			  "msgtype": "m.text",
+			  "body": "Hello World"
+			},
+			"sender": "@alice:localhost",
+			"room_id": "!foo:localhost",
+			"unsigned": {
+			  "bool_value": true,
+			  "null_value": null
+			}
+		  }`))
 	})
+
+	// This is where we call into the library, the rest of this is just setup/verification code
+	// ----------------------------------------------------------------------------------
 	// wrap the JSON handler and set it on the default serv mux
-	http.Handle("/json_endpoint", CBORToJSONHandler(handler, CBORCodecV1{Canonical: true}))
+	http.Handle("/json_endpoint", lb.CBORToJSONHandler(handler, lb.NewCBORCodecV1(true), nil))
+	// ----------------------------------------------------------------------------------
 
 	// Test case from MSC3079
-	inputData, err := hex.DecodeString(cborTestCaseHex)
+	inputData, err := hex.DecodeString(`a5026e6d2e726f6f6d2e6d65737361676503a2181b6b48656c6c6f20576f726c64181c666d2e74657874056e21666f6f3a6c6f63616c686f7374067040616c6963653a6c6f63616c686f737409a26a626f6f6c5f76616c7565f56a6e756c6c5f76616c7565f6`)
 	if err != nil {
 		panic(err)
 	}

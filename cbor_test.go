@@ -2,7 +2,9 @@ package lb
 
 import (
 	"bytes"
+	"encoding/hex"
 	stdjson "encoding/json"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 
@@ -153,6 +155,8 @@ func TestCBORInterfaceToJSONInterface(t *testing.T) {
 	}
 }
 
+// Tests that:
+// > This means it is possible for a key to be defined twice: once as a number and once as a string. If this happens, the string key MUST be used.
 func TestCBORDuplicateKey(t *testing.T) {
 	x := map[interface{}]interface{}{
 		"one": 11,
@@ -167,5 +171,38 @@ func TestCBORDuplicateKey(t *testing.T) {
 	}
 	if got["one"] != 11 {
 		t.Fatalf("cborInterfaceToJSONInterface preferred int key not str key: %+v", got)
+	}
+}
+
+func TestJSONToCBORWriter(t *testing.T) {
+	responseCode := 400
+	jsonResponseBody := []byte(`{"error":"something","errcode":"M_UNKNOWN"}`)
+	w := httptest.NewRecorder()
+	w.Body = bytes.NewBuffer(nil)
+
+	// Initialise the writer with a ResponseWriter from ServeHTTP
+	// Set canonical to false, we just use this for asserting the CBOR output
+	codec := NewCBORCodecV1(true)
+	jcw := jsonToCBORWriter{
+		ResponseWriter: w,
+		CBORCodec:      codec,
+	}
+	// This MUST be set for the conversion to work and MUST be set before WriteHeader
+	jcw.Header().Set("Content-Type", "application/json")
+	jcw.WriteHeader(responseCode)
+	_, err := jcw.Write(jsonResponseBody)
+	if err != nil {
+		panic(err)
+	}
+
+	// Assert the HTTP response code and response body
+	if w.Code != responseCode {
+		t.Errorf("wrong response code, got %d want %d", w.Code, responseCode)
+	}
+
+	gotBody := hex.EncodeToString(w.Body.Bytes())
+	wantBody := "a21866694d5f554e4b4e4f574e186769736f6d657468696e67"
+	if gotBody != wantBody {
+		t.Errorf("wrong response body, got %s want %s", gotBody, wantBody)
 	}
 }

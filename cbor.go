@@ -3,41 +3,30 @@ package lb
 import (
 	"bytes"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"reflect"
 	"sort"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/matrix-org/util"
 )
 
 var (
 	json = jsoniter.ConfigCompatibleWithStandardLibrary
 )
 
-// CBORCodec is an interface capable of mapping CBOR <--> JSON
-type CBORCodec interface {
-	// CBORToJSON converts a CBOR byte stream into JSON
-	CBORToJSON(input io.Reader) ([]byte, error)
-	// JSONToCBOR converts a JSON bytes stream into CBOR
-	JSONToCBOR(input io.Reader) ([]byte, error)
-}
-
-// JSONToCBORWriter is a wrapper around http.ResponseWriter which intercepts
+// jsonToCBORWriter is a wrapper around http.ResponseWriter which intercepts
 // calls to http.ResponseWriter and modifies Content-Type headers and JSON responses.
 // The caller can use this as a drop-in replacement when they are responding with JSON.
 // NB: This writer does not support streamed responses. The Write() call MUST correspond
 // to a single entire JSON object. If the writer is not used to send JSON, this writer
 // simply proxies the calls through to the underlying http.ResponseWriter.
-type JSONToCBORWriter struct {
+type jsonToCBORWriter struct {
 	http.ResponseWriter
-	CBORCodec
+	*CBORCodec
 	isSendingJSON bool
 }
 
-func (j *JSONToCBORWriter) WriteHeader(statusCode int) {
+func (j *jsonToCBORWriter) WriteHeader(statusCode int) {
 	if j.isSendingJSON {
 		return
 	}
@@ -50,7 +39,7 @@ func (j *JSONToCBORWriter) WriteHeader(statusCode int) {
 
 // Write the JSON output as CBOR - this relies on one write corresponding to an entire
 // valid JSON object, which httputil does.
-func (j *JSONToCBORWriter) Write(data []byte) (int, error) {
+func (j *jsonToCBORWriter) Write(data []byte) (int, error) {
 	if !j.isSendingJSON {
 		return j.ResponseWriter.Write(data)
 	}
@@ -59,26 +48,6 @@ func (j *JSONToCBORWriter) Write(data []byte) (int, error) {
 		return len(data), err
 	}
 	return j.ResponseWriter.Write(output)
-}
-
-// CBORToJSONHandler returns an HTTP handler which converts CBOR request bodies
-// into JSON request bodies then invokes the next HTTP handler. The next handler
-// MUST return JSON which will then be converted back into CBOR by writing to
-// the http.ResponseWriter (JSONToCBORWriter)
-func CBORToJSONHandler(next http.Handler, codec CBORCodec) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Header.Get("Content-Type") == "application/cbor" {
-			body, err := codec.CBORToJSON(req.Body)
-			if err != nil {
-				util.GetLogger(req.Context()).Warnf("CBORToJSON: failed to convert - %s", err)
-			}
-			req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-		}
-		next.ServeHTTP(&JSONToCBORWriter{
-			ResponseWriter: w,
-			CBORCodec:      codec,
-		}, req)
-	})
 }
 
 func jsonInterfaceToCBORInterface(jsonInt interface{}, lookup map[string]int) interface{} {

@@ -6,10 +6,13 @@ It also provides several command line tools to get up to speed with existing low
 
 ### Command Line Tools
 
-#### jc
+ - [jc](/cmd/jc): This tool can be used to convert JSON <--> CBOR.
+ - [coap](/cmd/coap): This tool can be used to send a single CoAP request/response, similar to `curl`.
 
-This tool can be used to convert JSON <--> CBOR.
-
-#### coap
-
-This tool can be used to send a single CoAP request/response, similar to `curl`.
+These can be tied together to interact with low-bandwidth enabled Matrix servers. For example:
+```bash
+# convert inline JSON to CBOR then pipe into coap to localhost:8008 then convert the CBOR response back to JSON and print to stdout
+./jc -out "-" '{"auth":{"type":"m.login.dummy"},"username":"foo","password":"barbarbar"}' \
+| ./coap -X POST -d '-' -H "Content-Type: application/cbor" -k  https://localhost:8008/_matrix/client/r0/register \
+| ./jc -c2j -out '-' '-'
+```
