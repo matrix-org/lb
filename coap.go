@@ -11,7 +11,9 @@ import (
 
 const ctxValAccessToken = "ctxValAccessToken"
 
+// The CoAP Option ID corresponding to the access_token for Matrix requests
 var OptionIDAccessToken = message.OptionID(256)
+
 var methodCodes = map[codes.Code]string{
 	codes.POST:   "POST",
 	codes.PUT:    "PUT",

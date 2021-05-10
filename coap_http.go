@@ -26,7 +26,9 @@ type Logger interface {
 
 // CoAPHTTP provides many ways to convert to and from HTTP/CoAP.
 type CoAPHTTP struct {
-	Log   Logger
+	// Optional logger if you want to debug request/responses
+	Log Logger
+	// Which set of CoAP enum paths to use (e.g v1)
 	Paths *CoAPPath
 	// Custom generator for CoAP tokens. NewCoAPHTTP uses a monotonically increasing integer.
 	NextToken func() message.Token
@@ -60,6 +62,9 @@ func (co *CoAPHTTP) log(v ...interface{}) {
 }
 
 // CoAPHTTPHandler transparently wraps an HTTP handler to accept and produce CoAP.
+//
+// `Observations` is an optional and allows the HTTP request to be observed in accordance with
+// the CoAP OBSERVE specification.
 func (co *CoAPHTTP) CoAPHTTPHandler(next http.Handler, ob *Observations) coapmux.Handler {
 	return coapmux.HandlerFunc(func(w coapmux.ResponseWriter, r *coapmux.Message) {
 		co.log("ClientAddress %v, %v\n", w.Client().RemoteAddr(), r.String())
@@ -74,7 +79,9 @@ func (co *CoAPHTTP) CoAPHTTPHandler(next http.Handler, ob *Observations) coapmux
 		// non-confirmable only because the request for more blocks is piggy-backed off
 		// an ACK from the first block.
 		if !r.IsConfirmable {
-			ob.HandleBlockwise(w, r)
+			if ob != nil {
+				ob.HandleBlockwise(w, r)
+			}
 			return
 		}
 		req := co.CoAPToHTTPRequest(r.Message)
@@ -113,7 +120,9 @@ func (co *CoAPHTTP) CoAPHTTPHandler(next http.Handler, ob *Observations) coapmux
 		//  https://tools.ietf.org/html/rfc7641#section-2
 		if obs, err := r.Options.Observe(); err == nil {
 			co.log("Client wants to observe resource %+v", r)
-			ob.HandleRegistration(req, w, r, obs == 0)
+			if ob != nil {
+				ob.HandleRegistration(req, w, r, obs == 0)
+			}
 			return
 		}
 		next.ServeHTTP(&coapResponseWriter{

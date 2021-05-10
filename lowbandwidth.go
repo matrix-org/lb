@@ -31,7 +31,7 @@ func NewCBORCodecV1(canonical bool) *CBORCodec {
 //     written first (before WriteHeader() is called).
 //
 // This is the main function users of this library should use if they wish to transparently
-// handle CBOR. If users wish to handle all of MSC3079 they should use NewLowBandwidthV1.
+// handle CBOR. This needs to be combined with CoAP handling to handle all of MSC3079.
 func CBORToJSONHandler(next http.Handler, codec *CBORCodec, logger Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Header.Get("Content-Type") == "application/cbor" {
