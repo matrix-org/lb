@@ -35,7 +35,7 @@ import (
 // Logger is an interface which can be satisfied to print debug logging when things go wrong.
 // It is entirely optional, in which cases errors are silent.
 type Logger interface {
-	Printf(v ...interface{})
+	Printf(format string, v ...interface{})
 }
 
 // CoAPHTTP provides many ways to convert to and from HTTP/CoAP.
@@ -68,11 +68,11 @@ func counter() message.Token {
 	return buf[:binary.PutUvarint(buf, uint64(count))]
 }
 
-func (co *CoAPHTTP) log(v ...interface{}) {
+func (co *CoAPHTTP) log(format string, v ...interface{}) {
 	if co.Log == nil {
 		return
 	}
-	co.Log.Printf(v...)
+	co.Log.Printf(format, v...)
 }
 
 // CoAPHTTPHandler transparently wraps an HTTP handler to accept and produce CoAP.

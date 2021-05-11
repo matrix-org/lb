@@ -119,11 +119,11 @@ func (w *coapResponseWriter) Header() http.Header {
 	return w.headers
 }
 
-func (w *coapResponseWriter) log(v ...interface{}) {
+func (w *coapResponseWriter) log(format string, v ...interface{}) {
 	if w.logger == nil {
 		return
 	}
-	w.logger.Printf(v...)
+	w.logger.Printf(format, v...)
 }
 
 func (w *coapResponseWriter) Write(b []byte) (int, error) {

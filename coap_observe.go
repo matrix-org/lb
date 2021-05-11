@@ -71,11 +71,11 @@ func NewObservations(next http.Handler, codec *CBORCodec, hasUpdatedFn HasUpdate
 	}
 }
 
-func (o *Observations) log(v ...interface{}) {
+func (o *Observations) log(format string, v ...interface{}) {
 	if o.Log == nil {
 		return
 	}
-	o.Log.Printf(v...)
+	o.Log.Printf(format, v...)
 }
 
 // longPoll will begin long-polling on the client's behalf
