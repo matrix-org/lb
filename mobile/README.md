@@ -17,6 +17,7 @@ For example, in Kotlin:
 ```kotlin
 import okhttp3.Response
 import okhttp3.Request
+import mobile.Mobile
 
 private fun init() {
     // First time setup for development
