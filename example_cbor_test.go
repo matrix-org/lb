@@ -26,7 +26,7 @@ import (
 	"github.com/matrix-org/lb"
 )
 
-func ExampleCBORCodecV1_CBORToJSON() {
+func ExampleCBORCodec_CBORToJSON() {
 	// Test case from MSC3079
 	input := `a5026e6d2e726f6f6d2e6d65737361676503a2181b6b48656c6c6f20576f726c64181c666d2e74657874056e21666f6f3a6c6f63616c686f7374067040616c6963653a6c6f63616c686f737409a26a626f6f6c5f76616c7565f56a6e756c6c5f76616c7565f6`
 	inputBytes, err := hex.DecodeString(input)
@@ -43,7 +43,7 @@ func ExampleCBORCodecV1_CBORToJSON() {
 	// {"content":{"body":"Hello World","msgtype":"m.text"},"room_id":"!foo:localhost","sender":"@alice:localhost","type":"m.room.message","unsigned":{"bool_value":true,"null_value":null}}
 }
 
-func ExampleCBORCodecV1_JSONToCBOR() {
+func ExampleCBORCodec_JSONToCBOR() {
 	// Test case from MSC3079
 	input := `
 	{
