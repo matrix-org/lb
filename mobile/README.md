@@ -11,16 +11,52 @@ The main API shape is:
 ```go
 func SendRequest(method, hsURL, token, body string) *Response
 ```
-For example:
-```go
-resp := SendRequest("POST", "http://localhost:8008/_matrix/client/r0/register?query=param", "abc123", `{"foo":"bar"}`)
-if resp == nil {
-    // request failed, e.g network error, failed JSON->CBOR conversion, failed HTTP->CoAP conversion
-    // fallback to HTTP
-    return
+
+For example, in Kotlin:
+
+```kotlin
+import okhttp3.Response
+import okhttp3.Request
+
+private fun init() {
+    // First time setup for development
+    val cp = Mobile.params()
+    cp.insecureSkipVerify = true
+    Mobile.setParams(cp)
 }
-// The body will be in JSON
-fmt.Println("Code: %d Body: %s", resp.Code, resp.Body)
+
+// call this function in an okhttp3.Interceptor
+// if <null> is returned then fallback to HTTP APIs
+private fun doRequest(request: Request): Response? {
+    val method = request.method
+    val url = request.url.toString()
+    val token = request.headers.get("Authorization")?.removePrefix("Bearer ")
+    val body = this.stringifyRequestBody(request)
+    // call out to the Go code
+    val result = Mobile.sendRequest(method, url, token, body)
+    if (result == null) {
+        return null
+    }
+    return Response.Builder()
+            .request(request)
+            .code(result.getCode().toInt())
+            .protocol(Protocol.HTTP_1_1)
+            .message(result.getBody())
+            .body(result.getBody().toByteArray().toResponseBody("application/json".toMediaTypeOrNull()))
+            .addHeader("content-type", "application/json")
+            .build()
+}
+
+private fun stringifyRequestBody(request: Request): String? {
+    return try {
+        val copy: Request = request.newBuilder().build()
+        val buffer = Buffer()
+        copy.body?.writeTo(buffer)
+        buffer.readUtf8()
+    } catch (e: IOException) {
+        ""
+    }
+}
 ```
 
 There are many connection parameters which can be configured, and it is important developers understand what
