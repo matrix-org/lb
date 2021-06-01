@@ -17,20 +17,28 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sync/atomic"
 	"time"
 
-	"github.com/go-ocf/go-coap/v2/net"
 	"github.com/matrix-org/lb"
 	piondtls "github.com/pion/dtls/v2"
 	"github.com/plgd-dev/go-coap/v2/dtls"
+	"github.com/plgd-dev/go-coap/v2/message"
+	"github.com/plgd-dev/go-coap/v2/message/codes"
+	"github.com/plgd-dev/go-coap/v2/mux"
 	coapmux "github.com/plgd-dev/go-coap/v2/mux"
+	"github.com/plgd-dev/go-coap/v2/net"
 	"github.com/plgd-dev/go-coap/v2/net/blockwise"
+	"github.com/plgd-dev/go-coap/v2/udp/client"
+	udpMessage "github.com/plgd-dev/go-coap/v2/udp/message"
+	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -42,10 +50,33 @@ type Config struct {
 	LocalAddr    string            // http://localhost:1234
 	Certificates []tls.Certificate // Certs to use
 	Advertise    string            // optional: Where this proxy is running publicly
-	CBORCodec    *lb.CBORCodec
-	CoAPHTTP     *lb.CoAPHTTP
-	KeyLogWriter io.Writer
-	Client       *http.Client
+	// how long to wait for the server to send a response before sending an ACK back
+	// If this is too short, the proxy server will send more packets than it should (1x ACK, 1x Response)
+	// and not do any piggybacking.
+	// If this is too long, the proxy server may not ACK the message before the retransmit time is hit on
+	// the client, causing a retransmission.
+	// Default: 10s
+	WaitTimeBeforeACK time.Duration
+	CBORCodec         *lb.CBORCodec
+	CoAPHTTP          *lb.CoAPHTTP
+	KeyLogWriter      io.Writer
+	Client            *http.Client
+}
+
+type handler interface {
+	ServeCOAP(w client.ResponseWriter, r *message.Message, udpMsg *pool.Message)
+}
+
+type muxResponseWriter struct {
+	w *client.ResponseWriter
+}
+
+func (w *muxResponseWriter) SetResponse(code codes.Code, contentFormat message.MediaType, d io.ReadSeeker, opts ...message.Option) error {
+	return w.w.SetResponse(code, contentFormat, d, opts...)
+}
+
+func (w *muxResponseWriter) Client() mux.Client {
+	return w.w.ClientConn().Client()
 }
 
 func forwardToLocalAddr(cfg *Config) http.HandlerFunc {
@@ -133,12 +164,14 @@ func writeResponse(cfg *Config, res *http.Response, w http.ResponseWriter) []byt
 				}
 			}
 		}
-		resBody, err = cfg.CBORCodec.JSONToCBOR(bytes.NewBuffer(jsonBody))
-		if err != nil {
-			logrus.WithError(err).Error("failed to convert response body from JSON to CBOR")
-			w.WriteHeader(http.StatusBadGateway)
-			w.Write([]byte("Failed to convert response body from JSON to CBOR"))
-			return resBody
+		if len(jsonBody) > 0 {
+			resBody, err = cfg.CBORCodec.JSONToCBOR(bytes.NewBuffer(jsonBody))
+			if err != nil {
+				logrus.WithError(err).WithField("body", string(jsonBody)).Error("failed to convert response body from JSON to CBOR")
+				w.WriteHeader(http.StatusBadGateway)
+				w.Write([]byte("Failed to convert response body from JSON to CBOR"))
+				return resBody
+			}
 		}
 	}
 	for k, vs := range res.Header {
@@ -147,9 +180,7 @@ func writeResponse(cfg *Config, res *http.Response, w http.ResponseWriter) []byt
 		}
 	}
 	w.WriteHeader(res.StatusCode)
-	if resBody != nil {
-		w.Write(resBody)
-	}
+	w.Write(resBody)
 	return resBody
 }
 
@@ -161,14 +192,53 @@ func (l *logger) Printf(format string, v ...interface{}) {
 
 // listenAndServeDTLS Starts a server on address and network over DTLS specified Invoke handler
 // for incoming queries.
-func listenAndServeDTLS(network string, addr string, config *piondtls.Config, handler coapmux.Handler) error {
+func listenAndServeDTLS(network string, addr string, config *piondtls.Config, waitACK time.Duration, handler coapmux.Handler) error {
 	l, err := net.NewDTLSListener(network, addr, config)
 	if err != nil {
 		return err
 	}
 	defer l.Close()
 	s := dtls.NewServer(
-		dtls.WithMux(handler),
+		dtls.WithHandlerFunc(func(w *client.ResponseWriter, r *pool.Message) {
+			muxw := &muxResponseWriter{
+				w: w,
+			}
+			muxr, err := pool.ConvertTo(r)
+			if err != nil {
+				return
+			}
+			// wait up to waitACK time before sending an ACK back.
+			// If ServeCoAP has returned then we know the ACK has been sent.
+			// If it is still blocking then we need to send an ACK back.
+			var processed int32
+			timer := time.AfterFunc(waitACK, func() {
+				wasProcessed := atomic.LoadInt32(&processed)
+				if wasProcessed == 0 {
+					// we're still inside ServeCOAP, send an ACK back
+					p, _ := r.Options().Path()
+					logrus.WithField("mid", r.MessageID()).WithField("path", p).Warn(
+						"ServeCOAP still running, sending ACK back",
+					)
+					ackMsg := pool.AcquireMessage(context.Background())
+					ackMsg.SetCode(codes.Empty)
+					ackMsg.SetType(udpMessage.Acknowledgement)
+					ackMsg.SetMessageID(r.MessageID())
+					ackErr := w.ClientConn().Session().WriteMessage(ackMsg)
+					if ackErr != nil {
+						logrus.WithError(ackErr).WithField("mid", r.MessageID()).Error(
+							"Failed to send ACK",
+						)
+					}
+				}
+			})
+			handler.ServeCOAP(muxw, &mux.Message{
+				Message:        muxr,
+				SequenceNumber: r.Sequence(),
+				IsConfirmable:  r.Type() == udpMessage.Confirmable,
+			})
+			atomic.StoreInt32(&processed, 1)
+			timer.Stop()
+		}),
 		// increase transfer time from 5s to 2min due to large inital sync responses
 		dtls.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
 	)
@@ -184,8 +254,12 @@ func RunProxyServer(cfg *Config) error {
 
 	if cfg.Client == nil {
 		cfg.Client = &http.Client{
-			Timeout: 60 * time.Second,
+			// Long timeout to handle long /sync requests
+			Timeout: 5 * time.Minute,
 		}
+	}
+	if cfg.WaitTimeBeforeACK == 0 {
+		cfg.WaitTimeBeforeACK = 10 * time.Second
 	}
 
 	go func() {
@@ -198,7 +272,7 @@ func RunProxyServer(cfg *Config) error {
 			handler, observations,
 		))
 		logrus.Infof("Listening for DTLS on %s", cfg.ListenDTLS)
-		if err := listenAndServeDTLS("udp", cfg.ListenDTLS, dtlsConfig, r); err != nil {
+		if err := listenAndServeDTLS("udp", cfg.ListenDTLS, dtlsConfig, cfg.WaitTimeBeforeACK, r); err != nil {
 			logrus.WithError(err).Panicf("Failed to ListenAndServeDTLS")
 		}
 	}()

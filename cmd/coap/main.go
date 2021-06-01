@@ -114,11 +114,15 @@ func verbosePrintRequest(req *http.Request) {
 }
 
 func printResponse(res *http.Response) {
-	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		log.Printf("FATAL reading response body: %s\n", err.Error())
-		os.Exit(1)
+	var body []byte
+	var err error
+	if res.Body != nil {
+		defer res.Body.Close()
+		body, err = ioutil.ReadAll(res.Body)
+		if err != nil {
+			log.Printf("FATAL reading response body: %s\n", err.Error())
+			os.Exit(1)
+		}
 	}
 	if flagVerbose || flagInclude {
 		data, err := httputil.DumpResponse(res, false)

@@ -91,7 +91,8 @@ func (co *CoAPHTTP) CoAPHTTPHandler(next http.Handler, ob *Observations) coapmux
 		// but for /sync it really isn't. To allow callers to handle this, we'll pass
 		// non-confirmable messages to the observe code and let it sort it out. Note: it's
 		// non-confirmable only because the request for more blocks is piggy-backed off
-		// an ACK from the first block.
+		// an ACK from the first block. TODO: Actually I think the fact that it's non-con is
+		// due to a go-coap bug
 		if !r.IsConfirmable {
 			if ob != nil {
 				ob.HandleBlockwise(w, r)

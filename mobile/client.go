@@ -30,6 +30,7 @@ import (
 	piondtls "github.com/pion/dtls/v2"
 	"github.com/plgd-dev/go-coap/v2/dtls"
 	"github.com/plgd-dev/go-coap/v2/message"
+	"github.com/plgd-dev/go-coap/v2/net/blockwise"
 	"github.com/plgd-dev/go-coap/v2/udp/client"
 	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
 	"github.com/sirupsen/logrus"
@@ -386,6 +387,8 @@ func (c *dtlsClients) getClientForHost(host string) (*client.ClientConn, error) 
 			time.Duration(activeConnectionParams.TransmissionACKTimeoutSecs)*time.Second,
 			activeConnectionParams.TransmissionMaxRetransmits,
 		),
+		// long blockwise timeout to handle large sync responses which take a huge number of blocks
+		dtls.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
 	)
 	if err == nil {
 		c.conns[host] = co
