@@ -17,7 +17,7 @@ jobs:
         go-version: 1.15
 
     - name: Build
-      run: /run-builds.sh
+      run: run-builds.sh
 
     - name: Test
-      run: /run-tests.sh
+      run: run-tests.sh
