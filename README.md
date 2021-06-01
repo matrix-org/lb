@@ -14,6 +14,7 @@ See [mobile](/mobile) for Android/iOS bindings.
 
  - [jc](/cmd/jc): This tool can be used to convert JSON <--> CBOR.
  - [coap](/cmd/coap): This tool can be used to send a single CoAP request/response, similar to `curl`.
+ - [proxy](/cmd/proxy): This tool can be used to add low bandwidth support to any Matrix homeserver.
 
 These can be tied together to interact with low-bandwidth enabled Matrix servers. For example:
 ```bash
