@@ -22,9 +22,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	coapmux "github.com/plgd-dev/go-coap/v2/mux"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	coapmux "github.com/matrix-org/go-coap/v2/mux"
 )
 
 // ObserveUpdateFn is a function which can update the long-poll request between calls.

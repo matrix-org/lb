@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -26,11 +27,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/matrix-org/lb"
 	piondtls "github.com/pion/dtls/v2"
-	"github.com/plgd-dev/go-coap/v2/dtls"
-	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/go-coap/v2/dtls"
+	"github.com/matrix-org/go-coap/v2/net/blockwise"
+	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 )
 
 var (
@@ -151,7 +154,17 @@ func mainDTLS(targetURL string, keyLogWriter io.Writer) {
 		InsecureSkipVerify: flagInsecure,
 		KeyLogWriter:       keyLogWriter,
 	}
-	co, err := dtls.Dial(turl.Host, dtlsConfig)
+	co, err := dtls.Dial(turl.Host, dtlsConfig,
+		dtls.WithTransmission(1*time.Second, 60*time.Second, 4),
+		dtls.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
+		dtls.WithHeartBeat(60*time.Second),
+		dtls.WithKeepAlive(5, 30*time.Second, func(cc interface {
+			Close() error
+			Context() context.Context
+		}) {
+			return
+		}),
+	)
 	if err != nil {
 		log.Printf("FATAL: DTLS failed to dial UDP addr %s", err)
 		os.Exit(1)

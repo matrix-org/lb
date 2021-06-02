@@ -18,6 +18,7 @@ package mobile
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -28,11 +29,11 @@ import (
 
 	"github.com/matrix-org/lb"
 	piondtls "github.com/pion/dtls/v2"
-	"github.com/plgd-dev/go-coap/v2/dtls"
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/net/blockwise"
-	"github.com/plgd-dev/go-coap/v2/udp/client"
-	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/go-coap/v2/dtls"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/net/blockwise"
+	"github.com/matrix-org/go-coap/v2/udp/client"
+	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 	"github.com/sirupsen/logrus"
 )
 
@@ -57,6 +58,7 @@ type ConnectionParams struct {
 	// If this value is too low then sending many requests in a row will be queued, resulting in head-of-line
 	// blocking problems.
 	// The CoAP RFC recommends a value of 1. https://datatracker.ietf.org/doc/html/rfc7252#section-4.8
+	// XXX FIXME: This option is broken in go-coap: https://github.com/plgd-dev/go-coap/issues/226
 	TransmissionNStart int
 	// !!! IMPORTANT !!!
 	// =================
@@ -220,6 +222,7 @@ func SendRequest(method, hsURL, token, body string) *Response {
 	// send the request
 	var res *pool.Message
 	err = coapHTTP.HTTPRequestToCoAP(req, func(msg *pool.Message) error {
+		fmt.Printf("conn.Doooo %v \n", msg.String())
 		res, err = conn.Do(msg)
 		return err
 	})

@@ -25,11 +25,11 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/plgd-dev/go-coap/v2/message"
-	coapmux "github.com/plgd-dev/go-coap/v2/mux"
-	"github.com/plgd-dev/go-coap/v2/udp/client"
-	udpmessage "github.com/plgd-dev/go-coap/v2/udp/message"
-	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/go-coap/v2/message"
+	coapmux "github.com/matrix-org/go-coap/v2/mux"
+	"github.com/matrix-org/go-coap/v2/udp/client"
+	udpmessage "github.com/matrix-org/go-coap/v2/udp/message"
+	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 )
 
 // Logger is an interface which can be satisfied to print debug logging when things go wrong.
