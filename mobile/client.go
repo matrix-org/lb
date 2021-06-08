@@ -18,7 +18,6 @@ package mobile
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -224,7 +223,6 @@ func SendRequest(method, hsURL, token, body string) *Response {
 	// send the request
 	var res *pool.Message
 	err = coapHTTP.HTTPRequestToCoAP(req, func(msg *pool.Message) error {
-		fmt.Printf("conn.Doooo %v \n", msg.String())
 		res, err = conn.Do(msg)
 		return err
 	})

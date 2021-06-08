@@ -55,8 +55,9 @@ type Config struct {
 	// and not do any piggybacking.
 	// If this is too long, the proxy server may not ACK the message before the retransmit time is hit on
 	// the client, causing a retransmission.
-	// Default: 10s
+	// Default: 5s
 	WaitTimeBeforeACK time.Duration
+	AdvertiseOnHTTPS  bool // true to host the TCP reverse proxy using the certificates in Certificates
 	CBORCodec         *lb.CBORCodec
 	CoAPHTTP          *lb.CoAPHTTP
 	KeyLogWriter      io.Writer
@@ -278,7 +279,7 @@ func RunProxyServer(cfg *Config) error {
 	}()
 
 	if cfg.Advertise != "" {
-		logrus.Infof("Listening on %s/tcp to reverse proxy from %s to %s", cfg.ListenDTLS, cfg.Advertise, cfg.LocalAddr)
+		logrus.Infof("Listening on %s/tcp to reverse proxy from %s to %s - HTTPS enabled: %v", cfg.ListenDTLS, cfg.Advertise, cfg.LocalAddr, cfg.AdvertiseOnHTTPS)
 		localURL, err := url.Parse(cfg.LocalAddr)
 		if err != nil {
 			panic(err)
@@ -289,10 +290,23 @@ func RunProxyServer(cfg *Config) error {
 				rp2.Director(req)
 				logrus.Infof("TCP proxy %v", req.URL.String())
 				req.Host = localURL.Host
-			}}
-
-		if err := http.ListenAndServe(cfg.ListenDTLS, rp); err != nil {
-			logrus.WithError(err).Panicf("failed to ListenAndServe")
+			},
+		}
+		if cfg.AdvertiseOnHTTPS {
+			tlsServer := &http.Server{
+				Addr:    cfg.ListenDTLS,
+				Handler: rp,
+				TLSConfig: &tls.Config{
+					Certificates: cfg.Certificates,
+				},
+			}
+			if err := tlsServer.ListenAndServeTLS("", ""); err != nil {
+				logrus.WithError(err).Panicf("failed to ListenAndServeTLS")
+			}
+		} else {
+			if err := http.ListenAndServe(cfg.ListenDTLS, rp); err != nil {
+				logrus.WithError(err).Panicf("failed to ListenAndServe")
+			}
 		}
 	}
 

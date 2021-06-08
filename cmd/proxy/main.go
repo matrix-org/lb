@@ -19,6 +19,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/matrix-org/lb"
 	"github.com/sirupsen/logrus"
@@ -62,13 +63,14 @@ func main() {
 	}
 
 	err = RunProxyServer(&Config{
-		ListenDTLS:   *dtlsBindAddr,
-		LocalAddr:    *localAddr,
-		Certificates: certs,
-		KeyLogWriter: keyLogWriter,
-		Advertise:    *advertise,
-		CBORCodec:    lb.NewCBORCodecV1(false),
-		CoAPHTTP:     lb.NewCoAPHTTP(lb.NewCoAPPathV1()),
+		ListenDTLS:       *dtlsBindAddr,
+		LocalAddr:        *localAddr,
+		Certificates:     certs,
+		KeyLogWriter:     keyLogWriter,
+		Advertise:        *advertise,
+		AdvertiseOnHTTPS: *advertise != "" && strings.HasPrefix(*advertise, "https://"),
+		CBORCodec:        lb.NewCBORCodecV1(false),
+		CoAPHTTP:         lb.NewCoAPHTTP(lb.NewCoAPPathV1()),
 	})
 	if err != nil {
 		logrus.Panicf("RunProxyServer: %s", err)
