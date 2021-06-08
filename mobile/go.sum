@@ -82,6 +82,8 @@ github.com/matrix-org/go-coap/v2 v2.0.0-20210607153635-05743a0702b6 h1:/JWtXldUf
 github.com/matrix-org/go-coap/v2 v2.0.0-20210607153635-05743a0702b6/go.mod h1:GC7TQJU2vxrJhItiu5pjhNxmMqPm97wP1rk+xqK60eM=
 github.com/matrix-org/go-coap/v2 v2.0.0-20210607160830-dd828aaa40cd h1:oJdU/jKZMm7ihGJ7v8DBiun17j9puitjN1PbP5Jxe9k=
 github.com/matrix-org/go-coap/v2 v2.0.0-20210607160830-dd828aaa40cd/go.mod h1:GC7TQJU2vxrJhItiu5pjhNxmMqPm97wP1rk+xqK60eM=
+github.com/matrix-org/go-coap/v2 v2.0.0-20210608155919-691db5a1ade4 h1:SwJtJ7XktZNBL7s0rReaxuCoI9PWfW+JG/Zal35ZYa4=
+github.com/matrix-org/go-coap/v2 v2.0.0-20210608155919-691db5a1ade4/go.mod h1:GC7TQJU2vxrJhItiu5pjhNxmMqPm97wP1rk+xqK60eM=
 github.com/matrix-org/gomatrix v0.0.0-20190528120928-7df988a63f26 h1:Hr3zjRsq2bhrnp3Ky1qgx/fzCtCALOoGYylh2tpS9K4=
 github.com/matrix-org/gomatrix v0.0.0-20190528120928-7df988a63f26/go.mod h1:3fxX6gUjWyI/2Bt7J1OLhpCzOfO/bB3AiX0cJtEKud0=
 github.com/matrix-org/gomatrixserverlib v0.0.0-20210302161955-6142fe3f8c2c h1:vW3jBp1PnZ4uUqyS+JatJRYIl73ZLHkUkRzf1JdGxOI=
@@ -105,6 +107,7 @@ github.com/patrickmn/go-cache v2.1.0+incompatible h1:HRMgzkcYKYpi3C8ajMPV8OFXaaR
 github.com/patrickmn/go-cache v2.1.0+incompatible/go.mod h1:3Qf8kWWT7OJRJbdiICTKqZju1ZixQ/KpMGzzAfe6+WQ=
 github.com/pion/dtls/v2 v2.0.1-0.20200503085337-8e86b3a7d585 h1:0v1k/bHrth28TctdEWnrCgLehYn3nOvFAwOwtwmyC34=
 github.com/pion/dtls/v2 v2.0.1-0.20200503085337-8e86b3a7d585/go.mod h1:/GahSOC8ZY/+17zkaGJIG4OUkSGAcZu/N/g3roBOCkM=
+github.com/pion/dtls/v2 v2.0.9/go.mod h1:O0Wr7si/Zj5/EBFlDzDd6UtVxx25CE1r7XM7BQKYQho=
 github.com/pion/dtls/v2 v2.0.10-0.20210502094952-3dc563b9aede h1:f/uKAVo6gUJMw00gOWEolJy/0h8LfoaxouHD+Rq4EQo=
 github.com/pion/dtls/v2 v2.0.10-0.20210502094952-3dc563b9aede/go.mod h1:86wv5dgx2J/z871nUR+5fTTY9tISLUlo+C5Gm86r1Hs=
 github.com/pion/logging v0.2.2 h1:M9+AIj/+pxNsDfAT64+MAVgJO0rsyLnoJKCqf//DoeY=
@@ -223,6 +226,7 @@ golang.org/x/net v0.0.0-20201201195509-5d6afe98e0b7/go.mod h1:sp8m0HH+o8qH0wwXwY
 golang.org/x/net v0.0.0-20210119194325-5f4716e94777 h1:003p0dJM77cxMSyCPFphvZf/Y5/NXf5fzg6ufd1/Oew=
 golang.org/x/net v0.0.0-20210119194325-5f4716e94777/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
 golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
+golang.org/x/net v0.0.0-20210331212208-0fccb6fa2b5c/go.mod h1:p54w0d4576C0XHj96bSt6lcn1PtDYWL6XObtHCRCNQM=
 golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4 h1:4nGaVu0QrbjT/AK2PRLuQfQuh6DJve+pELhqTdAj3x0=
 golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4/go.mod h1:p54w0d4576C0XHj96bSt6lcn1PtDYWL6XObtHCRCNQM=
 golang.org/x/net v0.0.0-20210502030024-e5908800b52b/go.mod h1:OJAsFXCWl8Ukc7SiCT/9KSuxbyM7479/AVlXFRxuMCk=
@@ -256,6 +260,8 @@ golang.org/x/sys v0.0.0-20210423082822-04245dca01da/go.mod h1:h1NjWce9XRLGQEsW7w
 golang.org/x/sys v0.0.0-20210510120138-977fb7262007/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.0.0-20210603125802-9665404d3644 h1:CA1DEQ4NdKphKeL70tvsWNdT5oFh1lOjihRcEDROi0I=
 golang.org/x/sys v0.0.0-20210603125802-9665404d3644/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.0.0-20210608053332-aa57babbf139 h1:C+AwYEtBp/VQwoLntUmQ/yx3MS9vmZaKNdw5eOpoQe8=
+golang.org/x/sys v0.0.0-20210608053332-aa57babbf139/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
 golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
 golang.org/x/text v0.3.3 h1:cokOdA+Jmi5PJGXLlLllQSgYigAEfHXJAERHVMaCc2k=
