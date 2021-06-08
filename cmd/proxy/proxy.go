@@ -27,8 +27,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/matrix-org/lb"
-	piondtls "github.com/pion/dtls/v2"
 	"github.com/matrix-org/go-coap/v2/dtls"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/message/codes"
@@ -39,6 +37,8 @@ import (
 	"github.com/matrix-org/go-coap/v2/udp/client"
 	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
 	"github.com/matrix-org/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/lb"
+	piondtls "github.com/pion/dtls/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -259,7 +259,7 @@ func RunProxyServer(cfg *Config) error {
 		}
 	}
 	if cfg.WaitTimeBeforeACK == 0 {
-		cfg.WaitTimeBeforeACK = 10 * time.Second
+		cfg.WaitTimeBeforeACK = 5 * time.Second
 	}
 
 	go func() {
@@ -271,7 +271,7 @@ func RunProxyServer(cfg *Config) error {
 		r.DefaultHandle(cfg.CoAPHTTP.CoAPHTTPHandler(
 			handler, observations,
 		))
-		logrus.Infof("Listening for DTLS on %s", cfg.ListenDTLS)
+		logrus.Infof("Listening for DTLS on %s - ACK piggyback period: %v", cfg.ListenDTLS, cfg.WaitTimeBeforeACK)
 		if err := listenAndServeDTLS("udp", cfg.ListenDTLS, dtlsConfig, cfg.WaitTimeBeforeACK, r); err != nil {
 			logrus.WithError(err).Panicf("Failed to ListenAndServeDTLS")
 		}
@@ -287,6 +287,7 @@ func RunProxyServer(cfg *Config) error {
 		rp := &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
 				rp2.Director(req)
+				logrus.Infof("TCP proxy %v", req.URL.String())
 				req.Host = localURL.Host
 			}}
 

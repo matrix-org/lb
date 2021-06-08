@@ -27,13 +27,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix-org/lb"
-	piondtls "github.com/pion/dtls/v2"
 	"github.com/matrix-org/go-coap/v2/dtls"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
 	"github.com/matrix-org/go-coap/v2/udp/client"
 	"github.com/matrix-org/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/lb"
+	piondtls "github.com/pion/dtls/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -60,13 +60,14 @@ type ConnectionParams struct {
 	// The CoAP RFC recommends a value of 1. https://datatracker.ietf.org/doc/html/rfc7252#section-4.8
 	// XXX FIXME: This option is broken in go-coap: https://github.com/plgd-dev/go-coap/issues/226
 	TransmissionNStart int
-	// !!! IMPORTANT !!!
-	// =================
-	// How long to wait after having sent a CoAP message for an ACK from the server. If you are NOT using
-	// OBSERVE (and hence are long-polling over /sync) you MUST set this value to be higher than the
-	// /sync?timeout= value or else you will be unable to sync!
+	// How long to wait after having sent a CoAP message for an ACK from the server. It is important that
+	// any CoAP server sends an ACK back before this timeout is hit. Servers which implement long poll /sync
+	// MUST NOT piggyback the ACK with the sync payload (that is, wait for the sync response before ACKing)
+	// or else the ?timeout= value will be the ACK timeout when there are no new events. This will cause
+	// clients to retransmit sync requests needlessly.
 	// The CoAP RFC recommends a value of 2. https://datatracker.ietf.org/doc/html/rfc7252#section-4.8
-	// which WILL BE TOO LOW if you are not using /sync OBSERVE.
+	// If this value is too low, clients will retransmit packets needlessly when there are latency spikes.
+	// If this value is too high, clients will wait too long before retransmitting when there is packet loss.
 	TransmissionACKTimeoutSecs int
 	// The max number of times to retry sending a CoAP packet. If this is too high it can add unecessary
 	// bandwidth costs when the server is unreachable. If this is too low then the client will not handle
@@ -96,14 +97,15 @@ type ConnectionParams struct {
 }
 
 var activeConnectionParams = ConnectionParams{
-	InsecureSkipVerify:           false,
-	ObserveEnabled:               false,
-	FlightIntervalSecs:           2,
-	HeartbeatTimeoutSecs:         60,
-	KeepAliveMaxRetries:          5,
-	KeepAliveTimeoutSecs:         30,
-	TransmissionNStart:           1,
-	TransmissionACKTimeoutSecs:   35,
+	InsecureSkipVerify:   false,
+	ObserveEnabled:       false,
+	FlightIntervalSecs:   2,
+	HeartbeatTimeoutSecs: 60,
+	KeepAliveMaxRetries:  5,
+	KeepAliveTimeoutSecs: 30,
+	TransmissionNStart:   1,
+	// proxy is 5s, 3s grace period
+	TransmissionACKTimeoutSecs:   8,
 	TransmissionMaxRetransmits:   4,
 	ObserveBufferSize:            50,
 	ObserveNoResponseTimeoutSecs: 5,
@@ -392,6 +394,7 @@ func (c *dtlsClients) getClientForHost(host string) (*client.ClientConn, error) 
 		),
 		// long blockwise timeout to handle large sync responses which take a huge number of blocks
 		dtls.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
+		dtls.WithLogger(&logger{}),
 	)
 	if err == nil {
 		c.conns[host] = co
@@ -404,4 +407,10 @@ func (c *dtlsClients) getClientForHost(host string) (*client.ClientConn, error) 
 		})
 	}
 	return co, err
+}
+
+type logger struct{}
+
+func (l *logger) Printf(format string, v ...interface{}) {
+	logrus.Infof(format+"\n", v...)
 }
