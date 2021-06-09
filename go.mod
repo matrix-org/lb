@@ -4,7 +4,7 @@ go 1.14
 
 require (
 	github.com/dsnet/golib/memfile v1.0.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.2.0
+	github.com/fxamacker/cbor/v2 v2.3.0
 	github.com/json-iterator/go v1.1.11
 	github.com/matrix-org/go-coap/v2 v2.0.0-20210608155919-691db5a1ade4
 	github.com/matrix-org/gomatrixserverlib v0.0.0-20210302161955-6142fe3f8c2c
