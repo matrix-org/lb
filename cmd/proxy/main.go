@@ -69,7 +69,7 @@ func main() {
 		KeyLogWriter:     keyLogWriter,
 		Advertise:        *advertise,
 		AdvertiseOnHTTPS: *advertise != "" && strings.HasPrefix(*advertise, "https://"),
-		CBORCodec:        lb.NewCBORCodecV1(false),
+		CBORCodec:        lb.NewCBORCodecV1(true),
 		CoAPHTTP:         lb.NewCoAPHTTP(lb.NewCoAPPathV1()),
 	})
 	if err != nil {

@@ -19,11 +19,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -38,6 +40,7 @@ import (
 	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
 	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 	"github.com/matrix-org/lb"
+	"github.com/matrix-org/lb/mobile"
 	piondtls "github.com/pion/dtls/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
@@ -105,6 +108,8 @@ func forwardToLocalAddr(cfg *Config) http.HandlerFunc {
 		reqURL := *req.URL
 		reqURL.Scheme = localURL.Scheme
 		reqURL.Host = localURL.Host
+		reqURL.ForceQuery = false
+		reqURL.RawQuery = req.URL.RawQuery
 
 		newReq, err := http.NewRequest(req.Method, reqURL.String(), bytes.NewBuffer(body))
 		if err != nil {
@@ -286,16 +291,41 @@ func RunProxyServer(cfg *Config) error {
 		}
 		rp2 := httputil.NewSingleHostReverseProxy(localURL)
 		rp := &httputil.ReverseProxy{
+			Transport: &http.Transport{},
 			Director: func(req *http.Request) {
 				rp2.Director(req)
 				logrus.Infof("TCP proxy %v", req.URL.String())
 				req.Host = localURL.Host
 			},
 		}
+		router := http.NewServeMux()
+		router.HandleFunc("/_matrix/federation/", func(w http.ResponseWriter, r *http.Request) {
+			logrus.Infof("Federation HTTP->CoAP %s", r.URL.RequestURI())
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(500)
+			}
+			res := mobile.SendRequest(
+				r.Method,
+				fmt.Sprintf("https://%s:%d%s", r.Host, 8448, r.URL.RequestURI()), // TODO: make less yuck
+				strings.TrimPrefix(r.Header.Get("Authorization"), "X-Matrix "),
+				string(body),
+				true,
+			)
+			if res == nil {
+				w.WriteHeader(500)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(res.Code)
+			w.Write([]byte(res.Body))
+		})
+		router.Handle("/", rp)
+
 		if cfg.AdvertiseOnHTTPS {
 			tlsServer := &http.Server{
 				Addr:    cfg.ListenDTLS,
-				Handler: rp,
+				Handler: router,
 				TLSConfig: &tls.Config{
 					Certificates: cfg.Certificates,
 				},
@@ -304,7 +334,7 @@ func RunProxyServer(cfg *Config) error {
 				logrus.WithError(err).Panicf("failed to ListenAndServeTLS")
 			}
 		} else {
-			if err := http.ListenAndServe(cfg.ListenDTLS, rp); err != nil {
+			if err := http.ListenAndServe(cfg.ListenDTLS, router); err != nil {
 				logrus.WithError(err).Panicf("failed to ListenAndServe")
 			}
 		}

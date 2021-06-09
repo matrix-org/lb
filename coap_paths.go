@@ -96,7 +96,11 @@ func (c *CoAPPath) CoAPPathToHTTPPath(p string) string {
 				break
 			}
 			if strings.HasPrefix(httpSegments[i], "{") {
-				httpSegments[i] = url.PathEscape(segments[coapSegIndex])
+				// TODO: url.PathEscape is probably the right thing to have here, and that's
+				// probably what Dendrite uses, but Synapse seems to query-encode everything.
+				// If we don't match what the origin server does then the federation request
+				// signatures break, which is helpful.
+				httpSegments[i] = url.QueryEscape(segments[coapSegIndex])
 				coapSegIndex++
 			}
 		}

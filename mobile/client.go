@@ -96,7 +96,7 @@ type ConnectionParams struct {
 }
 
 var activeConnectionParams = ConnectionParams{
-	InsecureSkipVerify:   false,
+	InsecureSkipVerify:   true,
 	ObserveEnabled:       false,
 	FlightIntervalSecs:   2,
 	HeartbeatTimeoutSecs: 60,
@@ -144,7 +144,7 @@ type Response struct {
 // case clients should use normal Matrix over HTTP to send this request.
 //
 // This function will block until the response is returned, or the request times out.
-func SendRequest(method, hsURL, token, body string) *Response {
+func SendRequest(method, hsURL, token, body string, federation bool) *Response {
 	logrus.Infof("DTLS SendRequest -> %s %s", method, hsURL)
 
 	// convert JSON to CBOR
@@ -185,10 +185,15 @@ func SendRequest(method, hsURL, token, body string) *Response {
 	}
 
 	// Check if we've sent an access token and set it if we need to
-	sentAccessToken := conn.Context().Value(ctxValSentAccessToken)
-	if sentAccessToken == nil || sentAccessToken != token {
-		req.Header.Set("Authorization", "Bearer "+token)
-		conn.SetContextValue(ctxValSentAccessToken, token)
+	switch federation {
+	case false: // We only need to send one if it changed since last time
+		sentAccessToken := conn.Context().Value(ctxValSentAccessToken)
+		if sentAccessToken == nil || sentAccessToken != token {
+			req.Header.Set("Authorization", "Bearer "+token)
+			conn.SetContextValue(ctxValSentAccessToken, token)
+		}
+	case true: // We always need to send one
+		req.Header.Set("Authorization", "X-Matrix "+token)
 	}
 
 	// Check for /sync OBSERVE requests
@@ -236,7 +241,11 @@ func SendRequest(method, hsURL, token, body string) *Response {
 				logrus.WithError(err).Errorf("Failed to get DTLS client for host %s", u.Host)
 				return nil
 			}
-			req.Header.Set("Authorization", "Bearer "+token)
+			if federation {
+				req.Header.Set("Authorization", "X-Matrix "+token)
+			} else {
+				req.Header.Set("Authorization", "Bearer "+token)
+			}
 			conn.SetContextValue(ctxValSentAccessToken, token)
 			if reqBody != nil {
 				_, _ = reqBody.Seek(0, 0)
@@ -287,7 +296,7 @@ func observe(conn *client.ClientConn, path, token string, queries url.Values) ch
 	logrus.Infof("Observing path: %s", path)
 	opts := []message.Option{
 		{
-			ID:    lb.OptionIDAccessToken,
+			ID:    lb.OptionIDAuthorizationBearerToken,
 			Value: []byte(token),
 		},
 	}

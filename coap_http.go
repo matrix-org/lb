@@ -215,10 +215,16 @@ func (co *CoAPHTTP) CoAPToHTTPRequest(r *message.Message) *http.Request {
 		}
 	}
 
-	accessToken, _ := r.Options.GetString(OptionIDAccessToken)
+	accessToken, _ := r.Options.GetString(OptionIDAuthorizationBearerToken)
 	if accessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	}
+
+	federationAuth, _ := r.Options.GetString(OptionIDAuthorizationXMatrixToken)
+	if federationAuth != "" {
+		req.Header.Set("Authorization", "X-Matrix "+federationAuth)
+	}
+
 	return req
 }
 
@@ -276,8 +282,11 @@ func (co *CoAPHTTP) HTTPRequestToCoAP(req *http.Request, doFn func(*pool.Message
 	}
 	msg.SetContentFormat(contentFormat)
 	authHeader := req.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		msg.SetOptionString(OptionIDAccessToken, strings.TrimPrefix(authHeader, "Bearer "))
+	switch {
+	case strings.HasPrefix(authHeader, "Bearer "):
+		msg.SetOptionString(OptionIDAuthorizationBearerToken, strings.TrimPrefix(authHeader, "Bearer "))
+	case strings.HasPrefix(authHeader, "X-Matrix "):
+		msg.SetOptionString(OptionIDAuthorizationXMatrixToken, strings.TrimPrefix(authHeader, "X-Matrix "))
 	}
 	return doFn(msg)
 }
