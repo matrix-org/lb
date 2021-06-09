@@ -301,7 +301,7 @@ func RunProxyServer(cfg *Config) error {
 		router := http.NewServeMux()
 		router.HandleFunc("/_matrix/federation/", func(w http.ResponseWriter, r *http.Request) {
 			logrus.Infof("Federation HTTP->CoAP %s", r.URL.RequestURI())
-			body, err := io.ReadAll(r.Body)
+			body, err := ioutil.ReadAll(r.Body)
 			if err != nil {
 				w.WriteHeader(500)
 			}
