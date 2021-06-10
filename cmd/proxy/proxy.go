@@ -247,7 +247,7 @@ func listenAndServeDTLS(network string, addr string, config *piondtls.Config, wa
 	return s.Serve(l)
 }
 
-func routeHTTPtoDTLS(w http.ResponseWriter, r *http.Request) {
+func proxyToDTLS(w http.ResponseWriter, r *http.Request) {
 	logrus.Debugf("Federation proxy %s", r.URL.RequestURI())
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -318,8 +318,9 @@ func RunProxyServer(cfg *Config) error {
 		}
 
 		tcpRouter := http.NewServeMux()
-		tcpRouter.HandleFunc("/_matrix/federation/", routeHTTPtoDTLS)
-		tcpRouter.HandleFunc("/.well-known/matrix/", routeHTTPtoDTLS)
+		tcpRouter.HandleFunc("/_matrix/key/", proxyToDTLS)
+		tcpRouter.HandleFunc("/_matrix/federation/", proxyToDTLS)
+		tcpRouter.HandleFunc("/.well-known/matrix/", proxyToDTLS)
 		tcpRouter.Handle("/", rp)
 
 		if cfg.AdvertiseOnHTTPS {
