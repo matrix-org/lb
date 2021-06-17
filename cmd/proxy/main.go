@@ -26,9 +26,10 @@ import (
 )
 
 var (
-	dtlsBindAddr = flag.String("dtls-bind-addr", ":8008", "The DTLS UDP listening port for the server")
-	localAddr    = flag.String("local", "", "The HTTP server to forward inbound CoAP requests to e.g http://localhost:8008")
-	advertise    = flag.String("advertise", "",
+	dtlsBindAddr  = flag.String("dtls-bind-addr", ":8008", "The DTLS UDP listening port for the server")
+	proxyBindAddr = flag.String("proxy-bind-addr", "", "The HTTP server to act as a transparent proxy for outbound requests")
+	localAddr     = flag.String("local", "", "The HTTP server to forward inbound CoAP requests to e.g http://localhost:8008")
+	advertise     = flag.String("advertise", "",
 		"Optional: the public address of this proxy. If set, sniffs logins/registrations for homeserver discovery information and replaces the base_url with this advertising address. "+
 			"This is useful when the local server is not on the same machine as the proxy.")
 	certFile = flag.String("tls-cert", "", "The PEM formatted X509 certificate to use for TLS")
@@ -64,6 +65,7 @@ func main() {
 
 	err = RunProxyServer(&Config{
 		ListenDTLS:       *dtlsBindAddr,
+		ListenProxy:      *proxyBindAddr,
 		LocalAddr:        *localAddr,
 		Certificates:     certs,
 		KeyLogWriter:     keyLogWriter,

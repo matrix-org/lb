@@ -25,8 +25,11 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"os/signal"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/matrix-org/go-coap/v2/dtls"
@@ -49,8 +52,9 @@ import (
 
 // Config is the configuration options for the proxy
 type Config struct {
-	ListenDTLS   string            // :8008
-	LocalAddr    string            // http://localhost:1234
+	ListenDTLS   string            // UDP :8008
+	ListenProxy  string            // TCP :8009
+	LocalAddr    string            // Where Synapse is located: http://localhost:1234
 	Certificates []tls.Certificate // Certs to use
 	Advertise    string            // optional: Where this proxy is running publicly
 	// how long to wait for the server to send a response before sending an ACK back
@@ -286,23 +290,37 @@ func RunProxyServer(cfg *Config) error {
 		cfg.WaitTimeBeforeACK = 5 * time.Second
 	}
 
-	go func() {
-		dtlsRouter := coapmux.NewRouter()
-		handler := http.HandlerFunc(forwardToLocalAddr(cfg))
-		observations := lb.NewSyncObservations(handler, cfg.CoAPHTTP.Paths, cfg.CBORCodec)
-		observations.Log = &logger{}
-		cfg.CoAPHTTP.Log = &logger{}
-		dtlsRouter.DefaultHandle(cfg.CoAPHTTP.CoAPHTTPHandler(
-			handler, observations,
-		))
-		logrus.Infof("Listening for DTLS on %s - ACK piggyback period: %v", cfg.ListenDTLS, cfg.WaitTimeBeforeACK)
-		if err := listenAndServeDTLS("udp", cfg.ListenDTLS, dtlsConfig, cfg.WaitTimeBeforeACK, dtlsRouter); err != nil {
-			logrus.WithError(err).Panicf("Failed to ListenAndServeDTLS")
-		}
-	}()
+	if cfg.ListenDTLS != "" {
+		go func() {
+			dtlsRouter := coapmux.NewRouter()
+			handler := http.HandlerFunc(forwardToLocalAddr(cfg))
+			observations := lb.NewSyncObservations(handler, cfg.CoAPHTTP.Paths, cfg.CBORCodec)
+			observations.Log = &logger{}
+			cfg.CoAPHTTP.Log = &logger{}
+			dtlsRouter.DefaultHandle(cfg.CoAPHTTP.CoAPHTTPHandler(
+				handler, observations,
+			))
+			logrus.Infof("Proxying inbound DTLS->HTTP on %s (ACK piggyback period: %v)", cfg.ListenDTLS, cfg.WaitTimeBeforeACK)
+			if err := listenAndServeDTLS("udp", cfg.ListenDTLS, dtlsConfig, cfg.WaitTimeBeforeACK, dtlsRouter); err != nil {
+				logrus.WithError(err).Panicf("Failed to ListenAndServeDTLS")
+			}
+		}()
+	}
+
+	if cfg.ListenProxy != "" {
+		go func() {
+			logrus.Infof("Proxying outbound HTTP->DTLS on %s", cfg.ListenProxy)
+			proxyRouter := http.NewServeMux()
+			proxyRouter.HandleFunc("/", proxyToDTLS)
+
+			if err := http.ListenAndServe(cfg.ListenProxy, proxyRouter); err != nil {
+				logrus.WithError(err).Panicf("failed to ListenAndServe for proxy")
+			}
+		}()
+	}
 
 	if cfg.Advertise != "" {
-		logrus.Infof("Reverse proxy enabled from %s to %s", cfg.Advertise, cfg.LocalAddr)
+		logrus.Infof("Proxying inbound HTTP on %s (forward to %s)", cfg.LocalAddr, cfg.Advertise)
 		localURL, err := url.Parse(cfg.LocalAddr)
 		if err != nil {
 			panic(err)
@@ -317,17 +335,11 @@ func RunProxyServer(cfg *Config) error {
 			},
 		}
 
-		tcpRouter := http.NewServeMux()
-		tcpRouter.HandleFunc("/_matrix/key/", proxyToDTLS)
-		tcpRouter.HandleFunc("/_matrix/federation/", proxyToDTLS)
-		tcpRouter.HandleFunc("/.well-known/matrix/", proxyToDTLS)
-		tcpRouter.Handle("/", rp)
-
 		if cfg.AdvertiseOnHTTPS {
 			logrus.Infof("Listening for TCP+TLS on %s", cfg.ListenDTLS)
 			tlsServer := &http.Server{
 				Addr:    cfg.ListenDTLS,
-				Handler: tcpRouter,
+				Handler: rp,
 				TLSConfig: &tls.Config{
 					Certificates: cfg.Certificates,
 				},
@@ -337,11 +349,14 @@ func RunProxyServer(cfg *Config) error {
 			}
 		} else {
 			logrus.Infof("Listening for TCP on %s", cfg.ListenDTLS)
-			if err := http.ListenAndServe(cfg.ListenDTLS, tcpRouter); err != nil {
+			if err := http.ListenAndServe(cfg.ListenDTLS, rp); err != nil {
 				logrus.WithError(err).Panicf("failed to ListenAndServe")
 			}
 		}
 	}
 
-	select {} // block forever
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	<-c
+	return fmt.Errorf("interrupted by signal")
 }

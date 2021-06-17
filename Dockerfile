@@ -5,9 +5,9 @@ RUN apk --update --no-cache add bash build-base
 WORKDIR /build
 COPY . /build
 
-RUN go build -o proxy ./cmd/proxy
-RUN go build -o coap ./cmd/coap
-RUN go build -o jc ./cmd/jc
+RUN CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o proxy ./cmd/proxy
+RUN CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o coap ./cmd/coap
+RUN CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o jc ./cmd/jc
 
 FROM alpine:latest
 
