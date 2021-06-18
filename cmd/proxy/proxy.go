@@ -278,7 +278,7 @@ func RunProxyServer(cfg *Config) error {
 		}
 	}()
 
-	if cfg.Advertise != "" {
+	if cfg.Advertise != "" && false {
 		logrus.Infof("Listening on %s/tcp to reverse proxy from %s to %s - HTTPS enabled: %v", cfg.ListenDTLS, cfg.Advertise, cfg.LocalAddr, cfg.AdvertiseOnHTTPS)
 		localURL, err := url.Parse(cfg.LocalAddr)
 		if err != nil {
