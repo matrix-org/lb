@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -37,7 +38,7 @@ import (
 	"github.com/matrix-org/go-coap/v2/message/codes"
 	"github.com/matrix-org/go-coap/v2/mux"
 	coapmux "github.com/matrix-org/go-coap/v2/mux"
-	"github.com/matrix-org/go-coap/v2/net"
+	coapNet "github.com/matrix-org/go-coap/v2/net"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
 	"github.com/matrix-org/go-coap/v2/udp/client"
 	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
@@ -69,6 +70,9 @@ type Config struct {
 	CoAPHTTP          *lb.CoAPHTTP
 	KeyLogWriter      io.Writer
 	Client            *http.Client
+	// Optional. If set, will route federation requests via this packet conn instead of DTLS
+	FederationPacketConn   net.PacketConn
+	FederationAddrResolver func(host string) net.Addr
 }
 
 type muxResponseWriter struct {
@@ -199,7 +203,7 @@ func (l *logger) Printf(format string, v ...interface{}) {
 // listenAndServeDTLS Starts a server on address and network over DTLS specified Invoke handler
 // for incoming queries.
 func listenAndServeDTLS(network string, addr string, config *piondtls.Config, waitACK time.Duration, handler coapmux.Handler) error {
-	l, err := net.NewDTLSListener(network, addr, config)
+	l, err := coapNet.NewDTLSListener(network, addr, config)
 	if err != nil {
 		return err
 	}
@@ -265,6 +269,7 @@ func proxyToDTLS(w http.ResponseWriter, r *http.Request) {
 		true,
 	)
 	if res == nil {
+		logrus.Warnf("request %s failed", r.URL.RequestURI())
 		w.WriteHeader(500)
 		return
 	}
@@ -312,6 +317,11 @@ func RunProxyServer(cfg *Config) error {
 			logrus.Infof("Proxying outbound HTTP->DTLS on %s", cfg.ListenProxy)
 			proxyRouter := http.NewServeMux()
 			proxyRouter.HandleFunc("/", proxyToDTLS)
+
+			if cfg.FederationPacketConn != nil && cfg.FederationAddrResolver != nil {
+				logrus.Infof("Custom packet conn in use")
+				mobile.SetCustomConn(cfg.FederationPacketConn, cfg.FederationAddrResolver)
+			}
 
 			if err := http.ListenAndServe(cfg.ListenProxy, proxyRouter); err != nil {
 				logrus.WithError(err).Panicf("failed to ListenAndServe for proxy")

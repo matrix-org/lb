@@ -20,12 +20,14 @@ import (
 	"context"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/matrix-org/go-coap/v2/coap"
 	"github.com/matrix-org/go-coap/v2/dtls"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
@@ -35,6 +37,15 @@ import (
 	piondtls "github.com/pion/dtls/v2"
 	"github.com/sirupsen/logrus"
 )
+
+// FIXME: This is a gut wrenching hack; we should be exposing this more nicely
+var customPacketConn net.PacketConn
+var customAddrFunc func(host string) net.Addr
+
+func SetCustomConn(pc net.PacketConn, addr func(host string) net.Addr) {
+	customPacketConn = pc
+	customAddrFunc = addr
+}
 
 // ConnectionParams contains parameters for the entire low bandwidth stack, including DTLS, CoAP and OBSERVE.
 type ConnectionParams struct {
@@ -385,35 +396,66 @@ func (c *dtlsClients) getClientForHost(host string) (*client.ClientConn, error) 
 	if ok {
 		return co, nil
 	}
-	co, err := dtls.Dial(
-		host, c.dtlsConfig, dtls.WithHeartBeat(time.Duration(activeConnectionParams.HeartbeatTimeoutSecs)*time.Second),
-		dtls.WithKeepAlive(uint32(activeConnectionParams.KeepAliveMaxRetries), time.Duration(activeConnectionParams.KeepAliveTimeoutSecs)*time.Second, func(cc interface {
-			Close() error
-			Context() context.Context
-		}) {
-			return
-		}),
-		dtls.WithTransmission(
-			// FIXME? https://github.com/plgd-dev/go-coap/issues/226
-			time.Duration(activeConnectionParams.TransmissionNStart)*time.Second,
-			time.Duration(activeConnectionParams.TransmissionACKTimeoutSecs)*time.Second,
-			activeConnectionParams.TransmissionMaxRetransmits,
-		),
-		// long blockwise timeout to handle large sync responses which take a huge number of blocks
-		dtls.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
-		dtls.WithLogger(&logger{}),
-	)
-	if err == nil {
-		c.conns[host] = co
-		// delete the entry when the connection is closed so we'll make a new one
-		co.AddOnClose(func() {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			delete(c.conns, host)
-			logrus.Infof("Removed dead connection for host %s", host)
-		})
+	var err error
+	if customPacketConn != nil && customAddrFunc != nil {
+		newCfg := coap.NewConfig(
+			coap.WithErrors(func(err error) {
+				logrus.Warnf("coap error: %s", err)
+			}),
+			coap.WithHeartBeat(time.Duration(activeConnectionParams.HeartbeatTimeoutSecs)*time.Second),
+			coap.WithKeepAlive(uint32(activeConnectionParams.KeepAliveMaxRetries), time.Duration(activeConnectionParams.KeepAliveTimeoutSecs)*time.Second, func(cc interface {
+				Close() error
+				Context() context.Context
+			}) {
+				return
+			}),
+			coap.WithTransmission(
+				// FIXME? https://github.com/plgd-dev/go-coap/issues/226
+				time.Duration(activeConnectionParams.TransmissionNStart)*time.Second,
+				time.Duration(activeConnectionParams.TransmissionACKTimeoutSecs)*time.Second,
+				activeConnectionParams.TransmissionMaxRetransmits,
+			),
+			coap.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
+			coap.WithLogger(&logger{}),
+		)
+		co = newCfg.NewWithPacketConn(customPacketConn, customAddrFunc(host))
+		go func() {
+			if runErr := co.Run(); runErr != nil {
+				logrus.Warnf("NewWithPacketConn Run for %s returned error: %s", host, runErr)
+			}
+		}()
+	} else {
+		co, err = dtls.Dial(
+			host, c.dtlsConfig, dtls.WithHeartBeat(time.Duration(activeConnectionParams.HeartbeatTimeoutSecs)*time.Second),
+			dtls.WithKeepAlive(uint32(activeConnectionParams.KeepAliveMaxRetries), time.Duration(activeConnectionParams.KeepAliveTimeoutSecs)*time.Second, func(cc interface {
+				Close() error
+				Context() context.Context
+			}) {
+				return
+			}),
+			dtls.WithTransmission(
+				// FIXME? https://github.com/plgd-dev/go-coap/issues/226
+				time.Duration(activeConnectionParams.TransmissionNStart)*time.Second,
+				time.Duration(activeConnectionParams.TransmissionACKTimeoutSecs)*time.Second,
+				activeConnectionParams.TransmissionMaxRetransmits,
+			),
+			// long blockwise timeout to handle large sync responses which take a huge number of blocks
+			dtls.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
+			dtls.WithLogger(&logger{}),
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return co, err
+	c.conns[host] = co
+	// delete the entry when the connection is closed so we'll make a new one
+	co.AddOnClose(func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		delete(c.conns, host)
+		logrus.Infof("Removed dead connection for host %s", host)
+	})
+	return co, nil
 }
 
 type logger struct{}
