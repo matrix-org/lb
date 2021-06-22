@@ -418,7 +418,7 @@ func (c *dtlsClients) getClientForHost(host string) (*client.ClientConn, error) 
 			coap.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
 			coap.WithLogger(&logger{}),
 		)
-		co = newCfg.NewWithPacketConn(customPacketConn, customAddrFunc(host))
+		co = newCfg.NewSessionWithPacketConn(customPacketConn, customAddrFunc(host))
 		go func() {
 			if runErr := co.Run(); runErr != nil {
 				logrus.Warnf("NewWithPacketConn Run for %s returned error: %s", host, runErr)

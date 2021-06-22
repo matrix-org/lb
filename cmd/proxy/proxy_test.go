@@ -87,10 +87,10 @@ func TestOutboundCustomPacketConn(t *testing.T) {
 	}
 	cborCodec := lb.NewCBORCodecV1(true)
 	cfg := &Config{
-		ListenProxy:          ":8091",
-		CBORCodec:            cborCodec,
-		CoAPHTTP:             lb.NewCoAPHTTP(lb.NewCoAPPathV1()),
-		FederationPacketConn: pconn,
+		ListenProxy:                  ":8091",
+		CBORCodec:                    cborCodec,
+		CoAPHTTP:                     lb.NewCoAPHTTP(lb.NewCoAPPathV1()),
+		OutgoingFederationPacketConn: pconn,
 		FederationAddrResolver: func(host string) net.Addr {
 			return &customAddr{host}
 		},

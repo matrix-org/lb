@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/matrix-org/go-coap/v2/coap"
 	"github.com/matrix-org/go-coap/v2/dtls"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/message/codes"
@@ -71,8 +72,9 @@ type Config struct {
 	KeyLogWriter      io.Writer
 	Client            *http.Client
 	// Optional. If set, will route federation requests via this packet conn instead of DTLS
-	FederationPacketConn   net.PacketConn
-	FederationAddrResolver func(host string) net.Addr
+	OutgoingFederationPacketConn net.PacketConn
+	IncomingFederationPacketConn net.PacketConn
+	FederationAddrResolver       func(host string) net.Addr
 }
 
 type muxResponseWriter struct {
@@ -318,13 +320,44 @@ func RunProxyServer(cfg *Config) error {
 			proxyRouter := http.NewServeMux()
 			proxyRouter.HandleFunc("/", proxyToDTLS)
 
-			if cfg.FederationPacketConn != nil && cfg.FederationAddrResolver != nil {
-				logrus.Infof("Custom packet conn in use")
-				mobile.SetCustomConn(cfg.FederationPacketConn, cfg.FederationAddrResolver)
+			if cfg.OutgoingFederationPacketConn != nil && cfg.FederationAddrResolver != nil {
+				logrus.Infof("Custom OutgoingFederationPacketConn in use")
+				mobile.SetCustomConn(cfg.OutgoingFederationPacketConn, cfg.FederationAddrResolver)
 			}
 
 			if err := http.ListenAndServe(cfg.ListenProxy, proxyRouter); err != nil {
 				logrus.WithError(err).Panicf("failed to ListenAndServe for proxy")
+			}
+		}()
+	}
+
+	if cfg.IncomingFederationPacketConn != nil {
+		go func() {
+			logrus.Infof("Listening for CoAP messages on IncomingFederationPacketConn")
+			activeConnectionParams := mobile.Params()
+			newCfg := coap.NewConfig(
+				coap.WithErrors(func(err error) {
+					logrus.Warnf("coap error: %s", err)
+				}),
+				coap.WithHeartBeat(time.Duration(activeConnectionParams.HeartbeatTimeoutSecs)*time.Second),
+				coap.WithKeepAlive(uint32(activeConnectionParams.KeepAliveMaxRetries), time.Duration(activeConnectionParams.KeepAliveTimeoutSecs)*time.Second, func(cc interface {
+					Close() error
+					Context() context.Context
+				}) {
+					return
+				}),
+				coap.WithTransmission(
+					// FIXME? https://github.com/plgd-dev/go-coap/issues/226
+					time.Duration(activeConnectionParams.TransmissionNStart)*time.Second,
+					time.Duration(activeConnectionParams.TransmissionACKTimeoutSecs)*time.Second,
+					activeConnectionParams.TransmissionMaxRetransmits,
+				),
+				coap.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
+				coap.WithLogger(&logger{}),
+			)
+			srv := newCfg.NewServer(cfg.IncomingFederationPacketConn)
+			if err := srv.Serve(); err != nil {
+				logrus.Errorf("failed to Serve: %s", err)
 			}
 		}()
 	}

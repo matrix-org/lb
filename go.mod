@@ -7,7 +7,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.3.0
 	github.com/go-ocf/go-coap/v2 v2.0.4-0.20200728125043-f38b86f047a7
 	github.com/json-iterator/go v1.1.11
-	github.com/matrix-org/go-coap/v2 v2.0.0-20210621191305-b4056b077d04
+	github.com/matrix-org/go-coap/v2 v2.0.0-20210622133725-61108bb7222d
 	github.com/matrix-org/gomatrixserverlib v0.0.0-20210302161955-6142fe3f8c2c
 	github.com/matrix-org/util v0.0.0-20200807132607-55161520e1d4 // indirect
 	github.com/pion/dtls/v2 v2.0.10-0.20210502094952-3dc563b9aede
