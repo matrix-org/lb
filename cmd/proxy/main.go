@@ -18,7 +18,9 @@ import (
 	"crypto/tls"
 	"flag"
 	"io"
+	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/matrix-org/lb"
@@ -63,16 +65,26 @@ func main() {
 		}
 	}
 
+	_, outboundStr, err := net.SplitHostPort(*dtlsBindAddr)
+	if err != nil {
+		panic(err)
+	}
+	outboundPort, err := strconv.Atoi(outboundStr)
+	if err != nil {
+		panic(err)
+	}
+
 	err = RunProxyServer(&Config{
-		ListenDTLS:       *dtlsBindAddr,
-		ListenProxy:      *proxyBindAddr,
-		LocalAddr:        *localAddr,
-		Certificates:     certs,
-		KeyLogWriter:     keyLogWriter,
-		Advertise:        *advertise,
-		AdvertiseOnHTTPS: *advertise != "" && strings.HasPrefix(*advertise, "https://"),
-		CBORCodec:        lb.NewCBORCodecV1(true),
-		CoAPHTTP:         lb.NewCoAPHTTP(lb.NewCoAPPathV1()),
+		ListenDTLS:             *dtlsBindAddr,
+		ListenProxy:            *proxyBindAddr,
+		LocalAddr:              *localAddr,
+		OutboundFederationPort: outboundPort,
+		Certificates:           certs,
+		KeyLogWriter:           keyLogWriter,
+		Advertise:              *advertise,
+		AdvertiseOnHTTPS:       *advertise != "" && strings.HasPrefix(*advertise, "https://"),
+		CBORCodec:              lb.NewCBORCodecV1(true),
+		CoAPHTTP:               lb.NewCoAPHTTP(lb.NewCoAPPathV1()),
 	})
 	if err != nil {
 		logrus.Panicf("RunProxyServer: %s", err)

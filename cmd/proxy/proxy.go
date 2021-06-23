@@ -54,11 +54,12 @@ import (
 
 // Config is the configuration options for the proxy
 type Config struct {
-	ListenDTLS   string            // UDP :8008
-	ListenProxy  string            // TCP :8009
-	LocalAddr    string            // Where Synapse is located: http://localhost:1234
-	Certificates []tls.Certificate // Certs to use
-	Advertise    string            // optional: Where this proxy is running publicly
+	ListenDTLS             string            // UDP :8008
+	ListenProxy            string            // TCP :8009
+	LocalAddr              string            // Where Synapse is located: http://localhost:1234
+	OutboundFederationPort int               // which UDP port will we expect to find DTLS on?
+	Certificates           []tls.Certificate // Certs to use
+	Advertise              string            // optional: Where this proxy is running publicly
 	// how long to wait for the server to send a response before sending an ACK back
 	// If this is too short, the proxy server will send more packets than it should (1x ACK, 1x Response)
 	// and not do any piggybacking.
@@ -257,7 +258,7 @@ func listenAndServeDTLS(network string, addr string, config *piondtls.Config, wa
 	return s.Serve(l)
 }
 
-func proxyToDTLS(w http.ResponseWriter, r *http.Request) {
+func (cfg *Config) proxyToDTLS(w http.ResponseWriter, r *http.Request) {
 	logrus.Debugf("Federation proxy %s", r.URL.RequestURI())
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -265,7 +266,7 @@ func proxyToDTLS(w http.ResponseWriter, r *http.Request) {
 	}
 	res := mobile.SendRequest(
 		r.Method,
-		fmt.Sprintf("https://%s:%d%s", r.Host, 8448, r.URL.RequestURI()), // TODO: make less yuck
+		fmt.Sprintf("https://%s:%d%s", r.Host, cfg.OutboundFederationPort, r.URL.RequestURI()), // TODO: make less yuck
 		strings.TrimPrefix(r.Header.Get("Authorization"), "X-Matrix "),
 		string(body),
 		true,
@@ -318,7 +319,7 @@ func RunProxyServer(cfg *Config) error {
 		go func() {
 			logrus.Infof("Proxying outbound HTTP->DTLS on %s", cfg.ListenProxy)
 			proxyRouter := http.NewServeMux()
-			proxyRouter.HandleFunc("/", proxyToDTLS)
+			proxyRouter.HandleFunc("/", cfg.proxyToDTLS)
 
 			if cfg.OutgoingFederationPacketConn != nil && cfg.FederationAddrResolver != nil {
 				logrus.Infof("Custom OutgoingFederationPacketConn in use")
