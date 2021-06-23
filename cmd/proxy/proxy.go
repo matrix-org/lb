@@ -318,6 +318,7 @@ func RunProxyServer(cfg *Config) error {
 	if cfg.ListenProxy != "" {
 		go func() {
 			logrus.Infof("Proxying outbound HTTP->DTLS on %s", cfg.ListenProxy)
+			logrus.Infof("Outbound federation will go to port UDP/%d", cfg.OutboundFederationPort)
 			proxyRouter := http.NewServeMux()
 			proxyRouter.HandleFunc("/", cfg.proxyToDTLS)
 
