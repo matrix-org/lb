@@ -22,7 +22,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/matrix-org/go-coap/v2/message"
@@ -172,27 +171,12 @@ func (co *CoAPHTTP) CoAPToHTTPRequest(r *message.Message) *http.Request {
 	if !strings.HasPrefix(optPath, "/") {
 		optPath = "/" + optPath
 	}
-	path := co.Paths.CoAPPathToHTTPPath(optPath)
-	if strings.HasPrefix(path, "/") {
-		path = path[1:]
-	}
+	path := strings.TrimPrefix(co.Paths.CoAPPathToHTTPPath(optPath), "/")
 	// go-coap doesn't combine queries nor does it separate key/values
 	queries, err := r.Options.Queries()
 	if err != nil && err != message.ErrOptionNotFound {
 		co.log("failed to extract Uri-Query option: %s", err)
 		return nil
-	}
-	query := make(url.Values)
-	for _, qs := range queries {
-		kvs := strings.SplitN(qs, "=", 2)
-		if len(kvs) != 2 {
-			co.log("ignoring malformed query string: %s", qs)
-			continue
-		}
-		// allow repeating query params e.g ?foo=1&foo=2 => { "foo": [ "1", "2" ]}
-		q := query[kvs[0]]
-		q = append(q, kvs[1])
-		query[kvs[0]] = q
 	}
 	var body []byte
 	if r.Body != nil {
@@ -202,7 +186,11 @@ func (co *CoAPHTTP) CoAPToHTTPRequest(r *message.Message) *http.Request {
 			return nil
 		}
 	}
-	req, err := http.NewRequest(method, "https://localhost/"+path+"?"+query.Encode(), bytes.NewReader(body))
+	localURL := "https://localhost/" + path
+	if len(queries) > 0 {
+		localURL += "?" + strings.Join(queries, "&")
+	}
+	req, err := http.NewRequest(method, localURL, bytes.NewReader(body))
 	if err != nil {
 		co.log("CoAPToHTTPRequest: failed to create HTTP request: %s", err)
 	}
