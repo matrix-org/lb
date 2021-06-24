@@ -261,11 +261,12 @@ func (co *CoAPHTTP) HTTPRequestToCoAP(req *http.Request, doFn func(*pool.Message
 	msg.SetToken(co.NextToken())
 	msg.SetCode(code)
 	msg.SetPath(co.Paths.HTTPPathToCoapPath(req.URL.Path))
-	queries := req.URL.Query()
-	for k, vs := range queries {
-		for _, v := range vs {
-			msg.AddQuery(k + "=" + v)
-		}
+	// We have to use req.URL.RawQuery here to ensure that the
+	// query options get added to the message in order. Using
+	// req.URL.Query() returns them in a map which loses the
+	// ordering.
+	for _, q := range strings.Split(req.URL.RawQuery, "&") {
+		msg.AddQuery(q)
 	}
 	if req.Body != nil {
 		body, err := ioutil.ReadAll(req.Body)
