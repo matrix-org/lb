@@ -19,25 +19,33 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"os/signal"
+	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
+	"github.com/matrix-org/go-coap/v2/coap"
 	"github.com/matrix-org/go-coap/v2/dtls"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/message/codes"
 	"github.com/matrix-org/go-coap/v2/mux"
 	coapmux "github.com/matrix-org/go-coap/v2/mux"
-	"github.com/matrix-org/go-coap/v2/net"
+	coapNet "github.com/matrix-org/go-coap/v2/net"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
 	"github.com/matrix-org/go-coap/v2/udp/client"
 	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
 	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 	"github.com/matrix-org/lb"
+	"github.com/matrix-org/lb/mobile"
 	piondtls "github.com/pion/dtls/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
@@ -46,10 +54,12 @@ import (
 
 // Config is the configuration options for the proxy
 type Config struct {
-	ListenDTLS   string            // :8008
-	LocalAddr    string            // http://localhost:1234
-	Certificates []tls.Certificate // Certs to use
-	Advertise    string            // optional: Where this proxy is running publicly
+	ListenDTLS             string            // UDP :8008
+	ListenProxy            string            // TCP :8009
+	LocalAddr              string            // Where Synapse is located: http://localhost:1234
+	OutboundFederationPort int               // which UDP port will we expect to find DTLS on?
+	Certificates           []tls.Certificate // Certs to use
+	Advertise              string            // optional: Where this proxy is running publicly
 	// how long to wait for the server to send a response before sending an ACK back
 	// If this is too short, the proxy server will send more packets than it should (1x ACK, 1x Response)
 	// and not do any piggybacking.
@@ -62,10 +72,10 @@ type Config struct {
 	CoAPHTTP          *lb.CoAPHTTP
 	KeyLogWriter      io.Writer
 	Client            *http.Client
-}
-
-type handler interface {
-	ServeCOAP(w client.ResponseWriter, r *message.Message, udpMsg *pool.Message)
+	// Optional. If set, will route federation requests via this packet conn instead of DTLS
+	OutgoingFederationPacketConn net.PacketConn
+	IncomingFederationPacketConn net.PacketConn
+	FederationAddrResolver       func(host string) net.Addr
 }
 
 type muxResponseWriter struct {
@@ -90,7 +100,7 @@ func forwardToLocalAddr(cfg *Config) http.HandlerFunc {
 		if err != nil {
 			logrus.WithError(err).Error("failed to read incoming request body")
 			w.WriteHeader(500)
-			w.Write([]byte(`Failed to read request body: ` + err.Error()))
+			_, _ = w.Write([]byte(`Failed to read request body: ` + err.Error()))
 			return
 		}
 		if req.Header.Get("Content-Type") == "application/cbor" {
@@ -98,19 +108,21 @@ func forwardToLocalAddr(cfg *Config) http.HandlerFunc {
 			if err != nil {
 				logrus.WithError(err).Error("failed to convert incoming request body from JSON to CBOR")
 				w.WriteHeader(500)
-				w.Write([]byte(`Failed to convert CBOR to JSON: ` + err.Error()))
+				_, _ = w.Write([]byte(`Failed to convert CBOR to JSON: ` + err.Error()))
 				return
 			}
 		}
 		reqURL := *req.URL
 		reqURL.Scheme = localURL.Scheme
 		reqURL.Host = localURL.Host
+		reqURL.ForceQuery = false
+		reqURL.RawQuery = req.URL.RawQuery
 
 		newReq, err := http.NewRequest(req.Method, reqURL.String(), bytes.NewBuffer(body))
 		if err != nil {
 			logrus.WithError(err).Error("failed to form proxy HTTP request")
 			w.WriteHeader(500)
-			w.Write([]byte("failed to form corresponding HTTP request"))
+			_, _ = w.Write([]byte("failed to form corresponding HTTP request"))
 			return
 		}
 		// copy headers
@@ -123,7 +135,7 @@ func forwardToLocalAddr(cfg *Config) http.HandlerFunc {
 		if err != nil {
 			logrus.WithError(err).Error("failed to contact local address")
 			w.WriteHeader(http.StatusBadGateway)
-			w.Write([]byte("Failed to contact local address"))
+			_, _ = w.Write([]byte("Failed to contact local address"))
 			return
 		}
 		resBody := writeResponse(cfg, res, w)
@@ -144,7 +156,7 @@ func writeResponse(cfg *Config, res *http.Response, w http.ResponseWriter) []byt
 		if err != nil {
 			logrus.WithError(err).Error("failed to read local response body")
 			w.WriteHeader(http.StatusBadGateway)
-			w.Write([]byte("Failed to read local response body"))
+			_, _ = w.Write([]byte("Failed to read local response body"))
 			return resBody
 		}
 		if cfg.Advertise != "" {
@@ -170,7 +182,7 @@ func writeResponse(cfg *Config, res *http.Response, w http.ResponseWriter) []byt
 			if err != nil {
 				logrus.WithError(err).WithField("body", string(jsonBody)).Error("failed to convert response body from JSON to CBOR")
 				w.WriteHeader(http.StatusBadGateway)
-				w.Write([]byte("Failed to convert response body from JSON to CBOR"))
+				_, _ = w.Write([]byte("Failed to convert response body from JSON to CBOR"))
 				return resBody
 			}
 		}
@@ -181,7 +193,7 @@ func writeResponse(cfg *Config, res *http.Response, w http.ResponseWriter) []byt
 		}
 	}
 	w.WriteHeader(res.StatusCode)
-	w.Write(resBody)
+	_, _ = w.Write(resBody)
 	return resBody
 }
 
@@ -194,7 +206,7 @@ func (l *logger) Printf(format string, v ...interface{}) {
 // listenAndServeDTLS Starts a server on address and network over DTLS specified Invoke handler
 // for incoming queries.
 func listenAndServeDTLS(network string, addr string, config *piondtls.Config, waitACK time.Duration, handler coapmux.Handler) error {
-	l, err := net.NewDTLSListener(network, addr, config)
+	l, err := coapNet.NewDTLSListener(network, addr, config)
 	if err != nil {
 		return err
 	}
@@ -246,6 +258,29 @@ func listenAndServeDTLS(network string, addr string, config *piondtls.Config, wa
 	return s.Serve(l)
 }
 
+func (cfg *Config) proxyToDTLS(w http.ResponseWriter, r *http.Request) {
+	logrus.Debugf("Federation proxy %s", r.URL.RequestURI())
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(500)
+	}
+	res := mobile.SendRequest(
+		r.Method,
+		fmt.Sprintf("https://%s:%d%s", r.Host, cfg.OutboundFederationPort, r.URL.RequestURI()), // TODO: make less yuck
+		strings.TrimPrefix(r.Header.Get("Authorization"), "X-Matrix "),
+		string(body),
+		true,
+	)
+	if res == nil {
+		logrus.Warnf("request %s failed", r.URL.RequestURI())
+		w.WriteHeader(500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(res.Code)
+	_, _ = w.Write([]byte(res.Body))
+}
+
 func RunProxyServer(cfg *Config) error {
 	// run the DTLS server
 	dtlsConfig := &piondtls.Config{
@@ -263,36 +298,90 @@ func RunProxyServer(cfg *Config) error {
 		cfg.WaitTimeBeforeACK = 5 * time.Second
 	}
 
-	go func() {
-		r := coapmux.NewRouter()
-		handler := http.HandlerFunc(forwardToLocalAddr(cfg))
-		observations := lb.NewSyncObservations(handler, cfg.CoAPHTTP.Paths, cfg.CBORCodec)
-		observations.Log = &logger{}
-		cfg.CoAPHTTP.Log = &logger{}
-		r.DefaultHandle(cfg.CoAPHTTP.CoAPHTTPHandler(
-			handler, observations,
-		))
-		logrus.Infof("Listening for DTLS on %s - ACK piggyback period: %v", cfg.ListenDTLS, cfg.WaitTimeBeforeACK)
-		if err := listenAndServeDTLS("udp", cfg.ListenDTLS, dtlsConfig, cfg.WaitTimeBeforeACK, r); err != nil {
-			logrus.WithError(err).Panicf("Failed to ListenAndServeDTLS")
-		}
-	}()
+	if cfg.ListenDTLS != "" {
+		go func() {
+			dtlsRouter := coapmux.NewRouter()
+			handler := http.HandlerFunc(forwardToLocalAddr(cfg))
+			observations := lb.NewSyncObservations(handler, cfg.CoAPHTTP.Paths, cfg.CBORCodec)
+			observations.Log = &logger{}
+			cfg.CoAPHTTP.Log = &logger{}
+			dtlsRouter.DefaultHandle(cfg.CoAPHTTP.CoAPHTTPHandler(
+				handler, observations,
+			))
+			logrus.Infof("Proxying inbound DTLS->HTTP on %s (ACK piggyback period: %v)", cfg.ListenDTLS, cfg.WaitTimeBeforeACK)
+			if err := listenAndServeDTLS("udp", cfg.ListenDTLS, dtlsConfig, cfg.WaitTimeBeforeACK, dtlsRouter); err != nil {
+				logrus.WithError(err).Panicf("Failed to ListenAndServeDTLS")
+			}
+		}()
+	}
+
+	if cfg.ListenProxy != "" {
+		go func() {
+			logrus.Infof("Proxying outbound HTTP->DTLS on %s", cfg.ListenProxy)
+			logrus.Infof("Outbound federation will go to port UDP/%d", cfg.OutboundFederationPort)
+			proxyRouter := http.NewServeMux()
+			proxyRouter.HandleFunc("/", cfg.proxyToDTLS)
+
+			if cfg.OutgoingFederationPacketConn != nil && cfg.FederationAddrResolver != nil {
+				logrus.Infof("Custom OutgoingFederationPacketConn in use")
+				mobile.SetCustomConn(cfg.OutgoingFederationPacketConn, cfg.FederationAddrResolver)
+			}
+
+			if err := http.ListenAndServe(cfg.ListenProxy, proxyRouter); err != nil {
+				logrus.WithError(err).Panicf("failed to ListenAndServe for proxy")
+			}
+		}()
+	}
+
+	if cfg.IncomingFederationPacketConn != nil {
+		go func() {
+			logrus.Infof("Listening for CoAP messages on IncomingFederationPacketConn")
+			activeConnectionParams := mobile.Params()
+			newCfg := coap.NewConfig(
+				coap.WithErrors(func(err error) {
+					logrus.Warnf("coap error: %s", err)
+				}),
+				coap.WithHeartBeat(time.Duration(activeConnectionParams.HeartbeatTimeoutSecs)*time.Second),
+				coap.WithKeepAlive(uint32(activeConnectionParams.KeepAliveMaxRetries), time.Duration(activeConnectionParams.KeepAliveTimeoutSecs)*time.Second, func(cc interface {
+					Close() error
+					Context() context.Context
+				}) {
+					return
+				}),
+				coap.WithTransmission(
+					// FIXME? https://github.com/plgd-dev/go-coap/issues/226
+					time.Duration(activeConnectionParams.TransmissionNStart)*time.Second,
+					time.Duration(activeConnectionParams.TransmissionACKTimeoutSecs)*time.Second,
+					activeConnectionParams.TransmissionMaxRetransmits,
+				),
+				coap.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
+				coap.WithLogger(&logger{}),
+			)
+			srv := newCfg.NewServer(cfg.IncomingFederationPacketConn)
+			if err := srv.Serve(); err != nil {
+				logrus.Errorf("failed to Serve: %s", err)
+			}
+		}()
+	}
 
 	if cfg.Advertise != "" {
-		logrus.Infof("Listening on %s/tcp to reverse proxy from %s to %s - HTTPS enabled: %v", cfg.ListenDTLS, cfg.Advertise, cfg.LocalAddr, cfg.AdvertiseOnHTTPS)
+		logrus.Infof("Proxying inbound HTTP on %s (forward to %s)", cfg.LocalAddr, cfg.Advertise)
 		localURL, err := url.Parse(cfg.LocalAddr)
 		if err != nil {
 			panic(err)
 		}
-		rp2 := httputil.NewSingleHostReverseProxy(localURL)
+
 		rp := &httputil.ReverseProxy{
+			Transport: &http.Transport{},
 			Director: func(req *http.Request) {
-				rp2.Director(req)
-				logrus.Infof("TCP proxy %v", req.URL.String())
+				httputil.NewSingleHostReverseProxy(localURL).Director(req)
+				logrus.Debugf("Reverse proxy %s", req.URL.String())
 				req.Host = localURL.Host
 			},
 		}
+
 		if cfg.AdvertiseOnHTTPS {
+			logrus.Infof("Listening for TCP+TLS on %s", cfg.ListenDTLS)
 			tlsServer := &http.Server{
 				Addr:    cfg.ListenDTLS,
 				Handler: rp,
@@ -304,11 +393,15 @@ func RunProxyServer(cfg *Config) error {
 				logrus.WithError(err).Panicf("failed to ListenAndServeTLS")
 			}
 		} else {
+			logrus.Infof("Listening for TCP on %s", cfg.ListenDTLS)
 			if err := http.ListenAndServe(cfg.ListenDTLS, rp); err != nil {
 				logrus.WithError(err).Panicf("failed to ListenAndServe")
 			}
 		}
 	}
 
-	select {} // block forever
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	<-c
+	return fmt.Errorf("interrupted by signal")
 }

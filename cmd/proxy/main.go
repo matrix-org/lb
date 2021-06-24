@@ -18,7 +18,9 @@ import (
 	"crypto/tls"
 	"flag"
 	"io"
+	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/matrix-org/lb"
@@ -26,9 +28,10 @@ import (
 )
 
 var (
-	dtlsBindAddr = flag.String("dtls-bind-addr", ":8008", "The DTLS UDP listening port for the server")
-	localAddr    = flag.String("local", "", "The HTTP server to forward inbound CoAP requests to e.g http://localhost:8008")
-	advertise    = flag.String("advertise", "",
+	dtlsBindAddr  = flag.String("dtls-bind-addr", ":8008", "The DTLS UDP listening port for the server")
+	proxyBindAddr = flag.String("proxy-bind-addr", "", "The HTTP server to act as a transparent proxy for outbound requests")
+	localAddr     = flag.String("local", "", "The HTTP server to forward inbound CoAP requests to e.g http://localhost:8008")
+	advertise     = flag.String("advertise", "",
 		"Optional: the public address of this proxy. If set, sniffs logins/registrations for homeserver discovery information and replaces the base_url with this advertising address. "+
 			"This is useful when the local server is not on the same machine as the proxy.")
 	certFile = flag.String("tls-cert", "", "The PEM formatted X509 certificate to use for TLS")
@@ -62,15 +65,26 @@ func main() {
 		}
 	}
 
+	_, outboundStr, err := net.SplitHostPort(*dtlsBindAddr)
+	if err != nil {
+		panic(err)
+	}
+	outboundPort, err := strconv.Atoi(outboundStr)
+	if err != nil {
+		panic(err)
+	}
+
 	err = RunProxyServer(&Config{
-		ListenDTLS:       *dtlsBindAddr,
-		LocalAddr:        *localAddr,
-		Certificates:     certs,
-		KeyLogWriter:     keyLogWriter,
-		Advertise:        *advertise,
-		AdvertiseOnHTTPS: *advertise != "" && strings.HasPrefix(*advertise, "https://"),
-		CBORCodec:        lb.NewCBORCodecV1(false),
-		CoAPHTTP:         lb.NewCoAPHTTP(lb.NewCoAPPathV1()),
+		ListenDTLS:             *dtlsBindAddr,
+		ListenProxy:            *proxyBindAddr,
+		LocalAddr:              *localAddr,
+		OutboundFederationPort: outboundPort,
+		Certificates:           certs,
+		KeyLogWriter:           keyLogWriter,
+		Advertise:              *advertise,
+		AdvertiseOnHTTPS:       *advertise != "" && strings.HasPrefix(*advertise, "https://"),
+		CBORCodec:              lb.NewCBORCodecV1(true),
+		CoAPHTTP:               lb.NewCoAPHTTP(lb.NewCoAPPathV1()),
 	})
 	if err != nil {
 		logrus.Panicf("RunProxyServer: %s", err)

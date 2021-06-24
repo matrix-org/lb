@@ -20,12 +20,14 @@ import (
 	"context"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/matrix-org/go-coap/v2/coap"
 	"github.com/matrix-org/go-coap/v2/dtls"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
@@ -35,6 +37,15 @@ import (
 	piondtls "github.com/pion/dtls/v2"
 	"github.com/sirupsen/logrus"
 )
+
+// FIXME: This is a gut wrenching hack; we should be exposing this more nicely
+var customPacketConn net.PacketConn
+var customAddrFunc func(host string) net.Addr
+
+func SetCustomConn(pc net.PacketConn, addr func(host string) net.Addr) {
+	customPacketConn = pc
+	customAddrFunc = addr
+}
 
 // ConnectionParams contains parameters for the entire low bandwidth stack, including DTLS, CoAP and OBSERVE.
 type ConnectionParams struct {
@@ -96,7 +107,7 @@ type ConnectionParams struct {
 }
 
 var activeConnectionParams = ConnectionParams{
-	InsecureSkipVerify:   false,
+	InsecureSkipVerify:   true,
 	ObserveEnabled:       false,
 	FlightIntervalSecs:   2,
 	HeartbeatTimeoutSecs: 60,
@@ -144,7 +155,7 @@ type Response struct {
 // case clients should use normal Matrix over HTTP to send this request.
 //
 // This function will block until the response is returned, or the request times out.
-func SendRequest(method, hsURL, token, body string) *Response {
+func SendRequest(method, hsURL, token, body string, federation bool) *Response {
 	logrus.Infof("DTLS SendRequest -> %s %s", method, hsURL)
 
 	// convert JSON to CBOR
@@ -185,10 +196,15 @@ func SendRequest(method, hsURL, token, body string) *Response {
 	}
 
 	// Check if we've sent an access token and set it if we need to
-	sentAccessToken := conn.Context().Value(ctxValSentAccessToken)
-	if sentAccessToken == nil || sentAccessToken != token {
-		req.Header.Set("Authorization", "Bearer "+token)
-		conn.SetContextValue(ctxValSentAccessToken, token)
+	switch federation {
+	case false: // We only need to send one if it changed since last time
+		sentAccessToken := conn.Context().Value(ctxValSentAccessToken)
+		if sentAccessToken == nil || sentAccessToken != token {
+			req.Header.Set("Authorization", "Bearer "+token)
+			conn.SetContextValue(ctxValSentAccessToken, token)
+		}
+	case true: // We always need to send one
+		req.Header.Set("Authorization", "X-Matrix "+token)
 	}
 
 	// Check for /sync OBSERVE requests
@@ -236,7 +252,11 @@ func SendRequest(method, hsURL, token, body string) *Response {
 				logrus.WithError(err).Errorf("Failed to get DTLS client for host %s", u.Host)
 				return nil
 			}
-			req.Header.Set("Authorization", "Bearer "+token)
+			if federation {
+				req.Header.Set("Authorization", "X-Matrix "+token)
+			} else {
+				req.Header.Set("Authorization", "Bearer "+token)
+			}
 			conn.SetContextValue(ctxValSentAccessToken, token)
 			if reqBody != nil {
 				_, _ = reqBody.Seek(0, 0)
@@ -287,7 +307,7 @@ func observe(conn *client.ClientConn, path, token string, queries url.Values) ch
 	logrus.Infof("Observing path: %s", path)
 	opts := []message.Option{
 		{
-			ID:    lb.OptionIDAccessToken,
+			ID:    lb.OptionIDAuthorizationBearerToken,
 			Value: []byte(token),
 		},
 	}
@@ -376,35 +396,66 @@ func (c *dtlsClients) getClientForHost(host string) (*client.ClientConn, error) 
 	if ok {
 		return co, nil
 	}
-	co, err := dtls.Dial(
-		host, c.dtlsConfig, dtls.WithHeartBeat(time.Duration(activeConnectionParams.HeartbeatTimeoutSecs)*time.Second),
-		dtls.WithKeepAlive(uint32(activeConnectionParams.KeepAliveMaxRetries), time.Duration(activeConnectionParams.KeepAliveTimeoutSecs)*time.Second, func(cc interface {
-			Close() error
-			Context() context.Context
-		}) {
-			return
-		}),
-		dtls.WithTransmission(
-			// FIXME? https://github.com/plgd-dev/go-coap/issues/226
-			time.Duration(activeConnectionParams.TransmissionNStart)*time.Second,
-			time.Duration(activeConnectionParams.TransmissionACKTimeoutSecs)*time.Second,
-			activeConnectionParams.TransmissionMaxRetransmits,
-		),
-		// long blockwise timeout to handle large sync responses which take a huge number of blocks
-		dtls.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
-		dtls.WithLogger(&logger{}),
-	)
-	if err == nil {
-		c.conns[host] = co
-		// delete the entry when the connection is closed so we'll make a new one
-		co.AddOnClose(func() {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			delete(c.conns, host)
-			logrus.Infof("Removed dead connection for host %s", host)
-		})
+	var err error
+	if customPacketConn != nil && customAddrFunc != nil {
+		newCfg := coap.NewConfig(
+			coap.WithErrors(func(err error) {
+				logrus.Warnf("coap error: %s", err)
+			}),
+			coap.WithHeartBeat(time.Duration(activeConnectionParams.HeartbeatTimeoutSecs)*time.Second),
+			coap.WithKeepAlive(uint32(activeConnectionParams.KeepAliveMaxRetries), time.Duration(activeConnectionParams.KeepAliveTimeoutSecs)*time.Second, func(cc interface {
+				Close() error
+				Context() context.Context
+			}) {
+				return
+			}),
+			coap.WithTransmission(
+				// FIXME? https://github.com/plgd-dev/go-coap/issues/226
+				time.Duration(activeConnectionParams.TransmissionNStart)*time.Second,
+				time.Duration(activeConnectionParams.TransmissionACKTimeoutSecs)*time.Second,
+				activeConnectionParams.TransmissionMaxRetransmits,
+			),
+			coap.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
+			coap.WithLogger(&logger{}),
+		)
+		co = newCfg.NewSessionWithPacketConn(customPacketConn, customAddrFunc(host))
+		go func() {
+			if runErr := co.Run(); runErr != nil {
+				logrus.Warnf("NewWithPacketConn Run for %s returned error: %s", host, runErr)
+			}
+		}()
+	} else {
+		co, err = dtls.Dial(
+			host, c.dtlsConfig, dtls.WithHeartBeat(time.Duration(activeConnectionParams.HeartbeatTimeoutSecs)*time.Second),
+			dtls.WithKeepAlive(uint32(activeConnectionParams.KeepAliveMaxRetries), time.Duration(activeConnectionParams.KeepAliveTimeoutSecs)*time.Second, func(cc interface {
+				Close() error
+				Context() context.Context
+			}) {
+				return
+			}),
+			dtls.WithTransmission(
+				// FIXME? https://github.com/plgd-dev/go-coap/issues/226
+				time.Duration(activeConnectionParams.TransmissionNStart)*time.Second,
+				time.Duration(activeConnectionParams.TransmissionACKTimeoutSecs)*time.Second,
+				activeConnectionParams.TransmissionMaxRetransmits,
+			),
+			// long blockwise timeout to handle large sync responses which take a huge number of blocks
+			dtls.WithBlockwise(true, blockwise.SZX1024, 2*time.Minute),
+			dtls.WithLogger(&logger{}),
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return co, err
+	c.conns[host] = co
+	// delete the entry when the connection is closed so we'll make a new one
+	co.AddOnClose(func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		delete(c.conns, host)
+		logrus.Infof("Removed dead connection for host %s", host)
+	})
+	return co, nil
 }
 
 type logger struct{}
