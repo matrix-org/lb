@@ -8,7 +8,7 @@ This proxy can then sit alongside a client to make outbound CoAP requests on the
 
 ```
 go build ./cmd/client-proxy
-./client-proxy -http-bind-addr :8008 -homeserver "coaps://example.com:8008"
+./client-proxy -http-bind-addr :8008 -homeserver "example.com:8008"
 ```
 
 There are sensible defaults, but they can be overridden using environment variables. The following
