@@ -12,7 +12,7 @@ require (
 	github.com/pion/dtls/v2 v2.0.10-0.20210502094952-3dc563b9aede
 	github.com/plgd-dev/kit v0.0.0-20210517115726-034a62788317 // indirect
 	github.com/sirupsen/logrus v1.4.2
-	github.com/tidwall/gjson v1.6.0
+	github.com/tidwall/gjson v1.9.1
 	github.com/tidwall/sjson v1.0.3
 	go.uber.org/atomic v1.7.0 // indirect
 	golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a // indirect
