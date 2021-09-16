@@ -9,7 +9,7 @@ require (
 	github.com/matrix-org/go-coap/v2 v2.0.0-20210608155919-691db5a1ade4
 	github.com/matrix-org/gomatrix v0.0.0-20210324163249-be2af5ef2e16 // indirect
 	github.com/matrix-org/gomatrixserverlib v0.0.0-20210817115641-f9416ac1a723 // indirect
-	github.com/matrix-org/lb v0.0.0-20210706113054-b00398cb8549 // indirect
+	github.com/matrix-org/lb v0.0.0-20210916112413-984a54a5343a
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/pion/dtls/v2 v2.0.10-0.20210502094952-3dc563b9aede
 	github.com/plgd-dev/kit v0.0.0-20210614190235-99984a49de48 // indirect
