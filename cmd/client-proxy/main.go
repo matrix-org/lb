@@ -84,6 +84,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	reqURL := req.URL
 	reqURL.Host = *homeserverAddr
 	token := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+	w.Header().Set("Content-Type", "application/json")
 	var body string
 	if req.Body != nil {
 		bodyBytes, err := ioutil.ReadAll(req.Body)
