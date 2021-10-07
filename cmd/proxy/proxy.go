@@ -19,11 +19,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -165,6 +168,31 @@ func writeResponse(cfg *Config, res *http.Response, w http.ResponseWriter) []byt
 				}
 			}
 		}
+		if res.Request.URL.Path == "/_matrix/client/versions" {
+			dtlsPortParts := strings.Split(cfg.ListenDTLS, ":")
+			dtlsPortInt, err := strconv.Atoi(dtlsPortParts[len(dtlsPortParts) - 1])
+			if err != nil {
+				logrus.WithError(err).Error("failed to parse port")
+			} else {
+				tuples := []struct {
+					Key string
+					Value interface{}
+				}{
+					{`org\.matrix\.msc3079\.low_bandwidth.dtls`, dtlsPortInt},
+					{`org\.matrix\.msc3079\.low_bandwidth.cbor_enum_version`, 1},
+					{`org\.matrix\.msc3079\.low_bandwidth.coap_enum_version`, 1},
+				}
+				for _, t := range tuples {
+					jsonBody2, err := sjson.SetBytes(jsonBody, t.Key, t.Value)
+					if err != nil {
+						logrus.WithError(err).Error("failed to advertise low-bandwidth support")
+					} else {
+						jsonBody = jsonBody2
+					}
+				}
+				logrus.Info("Modified versions response")
+			}
+		}
 		if len(jsonBody) > 0 {
 			resBody, err = cfg.CBORCodec.JSONToCBOR(bytes.NewBuffer(jsonBody))
 			if err != nil {
@@ -290,6 +318,43 @@ func RunProxyServer(cfg *Config) error {
 				rp2.Director(req)
 				logrus.Infof("TCP proxy %v", req.URL.String())
 				req.Host = localURL.Host
+			},
+			ModifyResponse: func(res *http.Response) error {
+				if res.Request.URL.Path == "/_matrix/client/versions" {
+					jsonBody, err := ioutil.ReadAll(res.Body)
+					if err != nil {
+						logrus.WithError(err).Error("failed to read the remote response body")
+						return nil
+					}
+					dtlsPortParts := strings.Split(cfg.ListenDTLS, ":")
+					dtlsPortInt, err := strconv.Atoi(dtlsPortParts[len(dtlsPortParts) - 1])
+					if err != nil {
+						logrus.WithError(err).Error("failed to parse port")
+					} else {
+						tuples := []struct {
+							Key string
+							Value interface{}
+						}{
+							{`org\.matrix\.msc3079\.low_bandwidth.dtls`, dtlsPortInt},
+							{`org\.matrix\.msc3079\.low_bandwidth.cbor_enum_version`, 1},
+							{`org\.matrix\.msc3079\.low_bandwidth.coap_enum_version`, 1},
+						}
+						for _, t := range tuples {
+							jsonBody2, err := sjson.SetBytes(jsonBody, t.Key, t.Value)
+							if err != nil {
+								logrus.WithError(err).Error("failed to advertise low-bandwidth support")
+							} else {
+								jsonBody = jsonBody2
+							}
+						}
+						buf := bytes.NewBufferString("")
+						buf.Write(jsonBody)
+						res.Body = ioutil.NopCloser(buf)
+						res.Header["Content-Length"] = []string{fmt.Sprint(buf.Len())}
+						logrus.Info("Modified versions response")
+					}
+				}
+				return nil
 			},
 		}
 		if cfg.AdvertiseOnHTTPS {
